@@ -1,32 +1,36 @@
-use git2::{Cred, Error, RemoteCallbacks};
-use std::env;
-use std::path::Path;
+use anyhow::{Context, Result};
+use serde::Deserialize;
+use std::env::VarError;
 
-fn main() {
-    let repository_url = std::env::args().nth(1).unwrap();
-    // Prepare callbacks.
-    let mut callbacks = RemoteCallbacks::new();
-    callbacks.credentials(|_url, username_from_url, _allowed_types| {
-        Cred::ssh_key(
-            username_from_url.unwrap(),
-            None,
-            std::path::Path::new(&format!("{}/.ssh/id_rsa_gitlab", env::var("HOME").unwrap())),
-            None,
-        )
-    });
+#[derive(Debug, Deserialize)]
+struct Group {
+    id: u64,
+    name: String,
+}
 
-    // Prepare fetch options.
-    let mut fo = git2::FetchOptions::new();
-    fo.remote_callbacks(callbacks);
+async fn fetch_groups(
+    client: reqwest::Client,
+    token: Result<String, VarError>,
+) -> Result<Vec<Group>> {
+    let mut req = client.get("https://gitlab.ppro.com/api/v4/groups?all_available&top_level");
+    if let Ok(token) = token {
+        req = req.header("PRIVATE-TOKEN", token);
+    }
 
-    // Prepare builder.
-    let mut builder = git2::build::RepoBuilder::new();
-    builder.fetch_options(fo);
+    let json = req.send().await?.text().await?;
 
-    // Clone the project.
-    let repo = builder
-        .clone(&repository_url, Path::new("/tmp/foobar"))
-        .unwrap();
+    let groups: Vec<Group> = serde_json::from_str(&json).context("failed to parse to JSON")?;
 
-    println!("Repo head: {:?}", repo.head().unwrap().name())
+    Ok(groups)
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    let token = std::env::var("GITLAB_TOKEN");
+    let client = reqwest::Client::new();
+
+    let groups = fetch_groups(client, token).await?;
+    println!("Groups: {:#?}", groups);
+
+    Ok(())
 }
