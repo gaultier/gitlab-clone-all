@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 #[derive(Debug, Deserialize)]
 struct Group {
@@ -44,28 +44,33 @@ async fn fetch_group_projects(
 #[tokio::main]
 async fn main() -> Result<()> {
     let token = Arc::new(std::env::var("GITLAB_TOKEN").unwrap());
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
 
     let groups = fetch_groups(&client, &token).await?;
     println!("Groups: {:#?}", groups);
 
-    for group in groups {
-        let c = client.clone();
-        let t = token.clone();
-        tokio::spawn(async move {
-            let _ = fetch_group_projects(c, &t, group.id)
-                .await
-                .map_err(|err| {
-                    eprintln!("Err: group_id={} err={}", group.id, err);
-                })
-                .map(|projects| {
-                    for project in projects {
-                        println!("group_id={} project={}", group.id, project.ssh_url_to_repo);
-                    }
-                });
-        });
-    }
-    let notify = tokio::sync::Notify::new();
-    notify.notified().await;
+    let join_handles = groups
+        .into_iter()
+        .map(|group| {
+            let c = client.clone();
+            let t = token.clone();
+            tokio::spawn(async move {
+                let _ = fetch_group_projects(c, &t, group.id)
+                    .await
+                    .map_err(|err| {
+                        eprintln!("Err: group_id={} err={}", group.id, err);
+                    })
+                    .map(|projects| {
+                        for project in projects {
+                            println!("group_id={} project={}", group.id, project.ssh_url_to_repo);
+                        }
+                    });
+            })
+        })
+        .collect::<Vec<_>>();
+    futures::future::join_all(join_handles).await;
     Ok(())
 }
