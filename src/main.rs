@@ -9,7 +9,7 @@ use std::str::FromStr;
 use std::{path::PathBuf, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum CloneMethod {
     Ssh,
     Https,
@@ -111,25 +111,31 @@ async fn clone_projects(mut rx: Receiver<Project>, opts: &Opts) -> Result<()> {
         let path = opts.directory.join(&project.path_with_namespace);
         println!("Received project {:?} fs_path={:?}", &project, &path);
 
-        let mut callbacks = RemoteCallbacks::new();
-        callbacks.credentials(|_url, username_from_url, _allowed_types| {
-            Cred::ssh_key(
-                username_from_url.unwrap(),
-                None,
-                std::path::Path::new(&format!(
-                    "{}/.ssh/id_rsa_gitlab",
-                    std::env::var("HOME").unwrap()
-                )),
-                None,
-            )
-        });
-        // Prepare fetch options.
-        let mut fo = git2::FetchOptions::new();
-        fo.remote_callbacks(callbacks);
+        let mut builder = if opts.clone_method == CloneMethod::Ssh {
+            let mut callbacks = RemoteCallbacks::new();
+            callbacks.credentials(|_url, username_from_url, _allowed_types| {
+                Cred::ssh_key(
+                    username_from_url.unwrap(),
+                    None,
+                    std::path::Path::new(&format!(
+                        "{}/.ssh/id_rsa_gitlab",
+                        std::env::var("HOME").unwrap()
+                    )),
+                    None,
+                )
+            });
+            // Prepare fetch options.
+            let mut fo = git2::FetchOptions::new();
+            fo.remote_callbacks(callbacks);
 
-        // Prepare builder.
-        let mut builder = git2::build::RepoBuilder::new();
-        builder.fetch_options(fo);
+            // Prepare builder.
+            let mut builder = git2::build::RepoBuilder::new();
+            builder.fetch_options(fo);
+            builder
+        } else {
+            git2::build::RepoBuilder::new()
+        };
+
         match builder.clone(&project.http_url_to_repo, &path) {
             Ok(_repo) => {
                 println!("Cloned project={:?}", &project);
