@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let token = std::env::var("GITLAB_TOKEN").unwrap();
+    let token = std::env::var("GITLAB_TOKEN").unwrap_or_else(|_| String::new());
     let mut headers = HeaderMap::new();
     headers.insert("PRIVATE-TOKEN", HeaderValue::from_str(&token).unwrap());
 
