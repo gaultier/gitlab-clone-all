@@ -1,11 +1,43 @@
 use anyhow::{Context, Result};
+use clap::Parser;
 use git2::{Cred, RemoteCallbacks};
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
 use serde::Deserialize;
+use std::str::FromStr;
 use std::{path::PathBuf, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
+
+#[derive(Debug)]
+enum CloneMethod {
+    Ssh,
+    Https,
+}
+
+impl FromStr for CloneMethod {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "https" => Ok(CloneMethod::Https),
+            "ssh" => Ok(CloneMethod::Ssh),
+            _ => Err("no match"),
+        }
+    }
+}
+
+/// Clone all git repositories from gitlab
+#[derive(Parser)]
+struct Opts {
+    /// Root directory where to clone all the projects
+    #[clap(short, long, default_value = ".")]
+    directory: PathBuf,
+    #[clap(short, long, default_value = "")]
+    api_token: String,
+    #[clap(short, long, possible_values = &["https","ssh"], default_value="https")]
+    clone_method: CloneMethod,
+}
 
 #[derive(Debug, Deserialize)]
 struct Group {
@@ -47,10 +79,13 @@ async fn fetch_group_projects(
     Ok(projects)
 }
 
-fn make_http_client() -> Result<Client> {
-    let token = std::env::var("GITLAB_TOKEN").unwrap_or_else(|_| String::new());
+fn make_http_client(api_token: &str) -> Result<Client> {
     let mut headers = HeaderMap::new();
-    headers.insert("PRIVATE-TOKEN", HeaderValue::from_str(&token).with_context(|| "Invalid token passed as environment variable GITLAB_TOKEN: cannot be set as HTTP header")?);
+    headers.insert(
+        "PRIVATE-TOKEN",
+        HeaderValue::from_str(api_token)
+            .with_context(|| "Invalid token: cannot be set as HTTP header")?,
+    );
 
     reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -126,12 +161,14 @@ async fn fetch_all_projects_for_group(client: reqwest::Client, tx: Sender<Projec
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let opts: Opts = Opts::parse();
+
     let (tx, rx) = tokio::sync::mpsc::channel::<Project>(500);
     tokio::spawn(async move {
         clone_projects(rx).await;
     });
 
-    let client = make_http_client()?;
+    let client = make_http_client(&opts.api_token)?;
 
     let groups = fetch_groups(&client).await?;
     println!("Groups: {:?}", groups);
