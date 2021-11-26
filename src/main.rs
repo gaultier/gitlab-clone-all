@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use git2::{Cred, RemoteCallbacks};
 use reqwest::header::HeaderMap;
@@ -94,16 +94,21 @@ fn make_http_client(api_token: &str) -> Result<Client> {
         .with_context(|| "Failed to create http client")
 }
 
-async fn clone_projects(mut rx: Receiver<Project>) {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    let root_dir_path = PathBuf::new().join("/tmp").join(now.to_string());
-    std::fs::create_dir(&root_dir_path).unwrap();
+async fn clone_projects(mut rx: Receiver<Project>, opts: &Opts) -> Result<()> {
+    match std::fs::create_dir(&opts.directory) {
+        Ok(_) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(err) => {
+            bail!(
+                "Failed to create the destination directory: directory={} err={}",
+                opts.directory.as_path().to_string_lossy(),
+                err
+            );
+        }
+    }
 
     while let Some(project) = rx.recv().await {
-        let path = root_dir_path.join(&project.path_with_namespace);
+        let path = opts.directory.join(&project.path_with_namespace);
         println!("Received project {:?} fs_path={:?}", &project, &path);
 
         let mut callbacks = RemoteCallbacks::new();
@@ -132,6 +137,7 @@ async fn clone_projects(mut rx: Receiver<Project>) {
             Err(e) => eprintln!("Failed to clone: project={:?} err={}", &project, e),
         };
     }
+    Ok(())
 }
 
 async fn fetch_all_projects_for_group(client: reqwest::Client, tx: Sender<Project>, group: Group) {
@@ -164,26 +170,27 @@ async fn main() -> Result<()> {
     let opts: Opts = Opts::parse();
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Project>(500);
-    tokio::spawn(async move {
-        clone_projects(rx).await;
-    });
-
     let client = make_http_client(&opts.api_token)?;
+    let _: Result<()> = tokio::spawn(async move {
+        let groups = fetch_groups(&client).await?;
+        println!("Groups: {:?}", groups);
 
-    let groups = fetch_groups(&client).await?;
-    println!("Groups: {:?}", groups);
+        let join_handles = groups
+            .into_iter()
+            .map(|group| {
+                let client = client.clone();
+                let tx = tx.clone();
 
-    let join_handles = groups
-        .into_iter()
-        .map(|group| {
-            let client = client.clone();
-            let tx = tx.clone();
-
-            tokio::spawn(async move {
-                fetch_all_projects_for_group(client, tx, group).await;
+                tokio::spawn(async move {
+                    fetch_all_projects_for_group(client, tx, group).await;
+                })
             })
-        })
-        .collect::<Vec<_>>();
-    futures::future::join_all(join_handles).await;
-    Ok(())
+            .collect::<Vec<_>>();
+        futures::future::join_all(join_handles).await;
+
+        Ok(())
+    })
+    .await?;
+
+    clone_projects(rx, &opts).await
 }
