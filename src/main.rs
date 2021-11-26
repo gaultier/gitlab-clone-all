@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
+use reqwest::Client;
 use serde::Deserialize;
 use std::{path::PathBuf, time::Duration};
 
@@ -43,6 +44,18 @@ async fn fetch_group_projects(
     Ok(projects)
 }
 
+fn make_http_client() -> Result<Client> {
+    let token = std::env::var("GITLAB_TOKEN").unwrap_or_else(|_| String::new());
+    let mut headers = HeaderMap::new();
+    headers.insert("PRIVATE-TOKEN", HeaderValue::from_str(&token).with_context(|| "Invalid token passed as environment variable GITLAB_TOKEN: cannot be set as HTTP header")?);
+
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .default_headers(headers)
+        .build()
+        .with_context(|| "Failed to create http client")
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Project>(500);
@@ -60,15 +73,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let token = std::env::var("GITLAB_TOKEN").unwrap_or_else(|_| String::new());
-    let mut headers = HeaderMap::new();
-    headers.insert("PRIVATE-TOKEN", HeaderValue::from_str(&token).unwrap());
-
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .default_headers(headers)
-        .build()
-        .unwrap();
+    let client = make_http_client()?;
 
     let groups = fetch_groups(&client).await?;
     println!("Groups: {:?}", groups);
