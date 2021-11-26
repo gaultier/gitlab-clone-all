@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use git2::Repository;
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
@@ -16,6 +17,7 @@ struct Group {
 struct Project {
     id: u64,
     ssh_url_to_repo: String,
+    http_url_to_repo: String,
     path_with_namespace: String,
 }
 
@@ -68,6 +70,12 @@ async fn clone_projects(mut rx: Receiver<Project>) {
     while let Some(project) = rx.recv().await {
         let path = root_dir_path.join(&project.path_with_namespace);
         println!("Received project {:?} fs_path={:?}", &project, &path);
+        match Repository::clone(&project.http_url_to_repo, path) {
+            Ok(_repo) => {
+                println!("Cloned project={:?}", &project);
+            }
+            Err(e) => eprintln!("Failed to clone: project={:?} err={}", &project, e),
+        };
     }
 }
 
