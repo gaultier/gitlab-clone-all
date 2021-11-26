@@ -6,6 +6,7 @@ use reqwest::header::HeaderValue;
 use reqwest::Client;
 use serde::Deserialize;
 use std::str::FromStr;
+use std::sync::Arc;
 use std::{path::PathBuf, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -94,7 +95,7 @@ fn make_http_client(api_token: &str) -> Result<Client> {
         .with_context(|| "Failed to create http client")
 }
 
-async fn clone_projects(mut rx: Receiver<Project>, opts: &Opts) -> Result<()> {
+async fn clone_projects(mut rx: Receiver<Project>, opts: Arc<Opts>) -> Result<()> {
     match std::fs::create_dir(&opts.directory) {
         Ok(_) => {}
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -109,39 +110,42 @@ async fn clone_projects(mut rx: Receiver<Project>, opts: &Opts) -> Result<()> {
 
     while let Some(project) = rx.recv().await {
         let path = opts.directory.join(&project.path_with_namespace);
-        println!("Received project {:?} fs_path={:?}", &project, &path);
+        println!("Cloning project {:?} fs_path={:?}", &project, &path);
 
-        let mut builder = if opts.clone_method == CloneMethod::Ssh {
-            let mut callbacks = RemoteCallbacks::new();
-            callbacks.credentials(|_url, username_from_url, _allowed_types| {
-                Cred::ssh_key(
-                    username_from_url.unwrap(),
-                    None,
-                    std::path::Path::new(&format!(
-                        "{}/.ssh/id_rsa_gitlab",
-                        std::env::var("HOME").unwrap()
-                    )),
-                    None,
-                )
-            });
-            // Prepare fetch options.
-            let mut fo = git2::FetchOptions::new();
-            fo.remote_callbacks(callbacks);
+        let opts = opts.clone();
+        tokio::spawn(async move {
+            let mut builder = if opts.clone_method == CloneMethod::Ssh {
+                let mut callbacks = RemoteCallbacks::new();
+                callbacks.credentials(|_url, username_from_url, _allowed_types| {
+                    Cred::ssh_key(
+                        username_from_url.unwrap(),
+                        None,
+                        std::path::Path::new(&format!(
+                            "{}/.ssh/id_rsa_gitlab",
+                            std::env::var("HOME").unwrap()
+                        )),
+                        None,
+                    )
+                });
+                // Prepare fetch options.
+                let mut fo = git2::FetchOptions::new();
+                fo.remote_callbacks(callbacks);
 
-            // Prepare builder.
-            let mut builder = git2::build::RepoBuilder::new();
-            builder.fetch_options(fo);
-            builder
-        } else {
-            git2::build::RepoBuilder::new()
-        };
+                // Prepare builder.
+                let mut builder = git2::build::RepoBuilder::new();
+                builder.fetch_options(fo);
+                builder
+            } else {
+                git2::build::RepoBuilder::new()
+            };
 
-        match builder.clone(&project.http_url_to_repo, &path) {
-            Ok(_repo) => {
-                println!("Cloned project={:?}", &project);
-            }
-            Err(e) => eprintln!("Failed to clone: project={:?} err={}", &project, e),
-        };
+            match builder.clone(&project.http_url_to_repo, &path) {
+                Ok(_repo) => {
+                    println!("Cloned project={:?}", &project);
+                }
+                Err(e) => eprintln!("Failed to clone: project={:?} err={}", &project, e),
+            };
+        });
     }
     Ok(())
 }
@@ -173,7 +177,7 @@ async fn fetch_all_projects_for_group(client: reqwest::Client, tx: Sender<Projec
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let opts: Opts = Opts::parse();
+    let opts: Arc<Opts> = Arc::new(Opts::parse());
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Project>(500);
     let client = make_http_client(&opts.api_token)?;
@@ -198,5 +202,5 @@ async fn main() -> Result<()> {
     })
     .await?;
 
-    clone_projects(rx, &opts).await
+    clone_projects(rx, opts.clone()).await
 }
