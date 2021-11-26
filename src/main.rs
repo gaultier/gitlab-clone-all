@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::{sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 #[derive(Debug, Deserialize)]
 struct Group {
@@ -12,6 +12,7 @@ struct Group {
 struct Project {
     id: u64,
     ssh_url_to_repo: String,
+    path_with_namespace: String,
 }
 
 async fn fetch_groups(client: &reqwest::Client, token: &str) -> Result<Vec<Group>> {
@@ -47,9 +48,16 @@ async fn fetch_group_projects(
 async fn main() -> Result<()> {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<Project>(500);
     tokio::spawn(async move {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let root_dir_path = PathBuf::new().join("/tmp").join(now.to_string());
+        std::fs::create_dir(&root_dir_path).unwrap();
+
         while let Some(project) = rx.recv().await {
-            println!("Received project {:?}", project);
-            // TODO
+            let path = root_dir_path.join(&project.path_with_namespace);
+            println!("Received project {:?} fs_path={:?}", &project, &path);
         }
     });
 
