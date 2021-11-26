@@ -10,6 +10,7 @@ struct Group {
 
 #[derive(Debug, Deserialize)]
 struct Project {
+    id: u64,
     ssh_url_to_repo: String,
 }
 
@@ -29,9 +30,10 @@ async fn fetch_group_projects(
     client: reqwest::Client,
     token: &str,
     group_id: u64,
+    project_id_after: Option<u64>,
 ) -> Result<Vec<Project>> {
     let mut req = client
-        .get(format!("https://gitlab.ppro.com/api/v4/groups/{}/projects?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100", group_id)); // TODO: pagination
+        .get(format!("https://gitlab.ppro.com/api/v4/groups/{}/projects?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100&id_after={}", group_id, project_id_after.unwrap_or(0)));
     req = req.header("PRIVATE-TOKEN", token);
 
     let json = req.send().await?.text().await?;
@@ -43,31 +45,57 @@ async fn fetch_group_projects(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<Project>(500);
+    tokio::spawn(async move {
+        while let Some(project) = rx.recv().await {
+            println!("Received project {:?}", project);
+            // TODO
+        }
+    });
+
     let token = Arc::new(std::env::var("GITLAB_TOKEN").unwrap());
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(10))
         .build()
         .unwrap();
 
     let groups = fetch_groups(&client, &token).await?;
-    println!("Groups: {:#?}", groups);
+    println!("Groups: {:?}", groups);
 
     let join_handles = groups
         .into_iter()
         .map(|group| {
-            let c = client.clone();
-            let t = token.clone();
+            let client = client.clone();
+            let token = token.clone();
+            let tx = tx.clone();
+
             tokio::spawn(async move {
-                let _ = fetch_group_projects(c, &t, group.id)
-                    .await
-                    .map_err(|err| {
-                        eprintln!("Err: group_id={} err={}", group.id, err);
-                    })
-                    .map(|projects| {
-                        for project in projects {
-                            println!("group_id={} project={}", group.id, project.ssh_url_to_repo);
+                let mut project_id_after = None;
+                loop {
+                    let res =
+                        fetch_group_projects(client.clone(), &token, group.id, project_id_after)
+                            .await;
+                    match res {
+                        Err(err) => {
+                            eprintln!("Err: group_id={} err={}", group.id, err);
+                            break;
                         }
-                    });
+                        Ok(projects) => {
+                            let new_project_id_after = projects.iter().map(|p| p.id).last();
+                            for project in projects {
+                                println!("group_id={} project={:?}", group.id, project);
+                                tx.send(project).await.unwrap();
+                            }
+
+                            if new_project_id_after == project_id_after
+                                || new_project_id_after.is_none()
+                            {
+                                break;
+                            }
+                            project_id_after = new_project_id_after;
+                        }
+                    }
+                }
             })
         })
         .collect::<Vec<_>>();
