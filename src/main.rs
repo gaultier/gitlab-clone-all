@@ -4,6 +4,7 @@ use reqwest::header::HeaderValue;
 use reqwest::Client;
 use serde::Deserialize;
 use std::{path::PathBuf, time::Duration};
+use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug, Deserialize)]
 struct Group {
@@ -56,21 +57,50 @@ fn make_http_client() -> Result<Client> {
         .with_context(|| "Failed to create http client")
 }
 
+async fn clone_projects(mut rx: Receiver<Project>) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let root_dir_path = PathBuf::new().join("/tmp").join(now.to_string());
+    std::fs::create_dir(&root_dir_path).unwrap();
+
+    while let Some(project) = rx.recv().await {
+        let path = root_dir_path.join(&project.path_with_namespace);
+        println!("Received project {:?} fs_path={:?}", &project, &path);
+    }
+}
+
+async fn fetch_all_projects_for_group(client: reqwest::Client, tx: Sender<Project>, group: Group) {
+    let mut project_id_after = None;
+    loop {
+        let res = fetch_group_projects(client.clone(), group.id, project_id_after).await;
+        match res {
+            Err(err) => {
+                eprintln!("Err: group_id={} err={}", group.id, err);
+                break;
+            }
+            Ok(projects) => {
+                let new_project_id_after = projects.iter().map(|p| p.id).last();
+                for project in projects {
+                    println!("group_id={} project={:?}", group.id, project);
+                    tx.send(project).await.unwrap();
+                }
+
+                if new_project_id_after == project_id_after || new_project_id_after.is_none() {
+                    break;
+                }
+                project_id_after = new_project_id_after;
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<Project>(500);
+    let (tx, rx) = tokio::sync::mpsc::channel::<Project>(500);
     tokio::spawn(async move {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let root_dir_path = PathBuf::new().join("/tmp").join(now.to_string());
-        std::fs::create_dir(&root_dir_path).unwrap();
-
-        while let Some(project) = rx.recv().await {
-            let path = root_dir_path.join(&project.path_with_namespace);
-            println!("Received project {:?} fs_path={:?}", &project, &path);
-        }
+        clone_projects(rx).await;
     });
 
     let client = make_http_client()?;
@@ -85,31 +115,7 @@ async fn main() -> Result<()> {
             let tx = tx.clone();
 
             tokio::spawn(async move {
-                let mut project_id_after = None;
-                loop {
-                    let res =
-                        fetch_group_projects(client.clone(), group.id, project_id_after).await;
-                    match res {
-                        Err(err) => {
-                            eprintln!("Err: group_id={} err={}", group.id, err);
-                            break;
-                        }
-                        Ok(projects) => {
-                            let new_project_id_after = projects.iter().map(|p| p.id).last();
-                            for project in projects {
-                                println!("group_id={} project={:?}", group.id, project);
-                                tx.send(project).await.unwrap();
-                            }
-
-                            if new_project_id_after == project_id_after
-                                || new_project_id_after.is_none()
-                            {
-                                break;
-                            }
-                            project_id_after = new_project_id_after;
-                        }
-                    }
-                }
+                fetch_all_projects_for_group(client, tx, group).await;
             })
         })
         .collect::<Vec<_>>();
