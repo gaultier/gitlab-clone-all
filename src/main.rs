@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
-use git2::Repository;
-use git2::{Cred, Error, RemoteCallbacks};
+use git2::{Cred, RemoteCallbacks};
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
