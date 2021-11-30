@@ -10,12 +10,6 @@ use std::sync::Arc;
 use std::{path::PathBuf, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 
-#[derive(Debug)]
-enum GroupMessage {
-    GroupTodo,
-    GroupDone,
-}
-
 #[derive(Debug, PartialEq)]
 enum CloneMethod {
     Ssh,
@@ -71,7 +65,7 @@ async fn fetch_groups(client: &reqwest::Client) -> Result<Vec<Group>> {
     Ok(groups)
 }
 
-async fn fetch_group_projects(
+async fn fetch_group_projects_paginated(
     client: reqwest::Client,
     group_id: u64,
     project_id_after: Option<u64>,
@@ -159,12 +153,11 @@ async fn clone_projects(mut rx_projects: Receiver<Project>, opts: Arc<Opts>) -> 
 async fn fetch_all_projects_for_group(
     client: reqwest::Client,
     tx_projects: Sender<Project>,
-    tx_groups: Arc<Sender<GroupMessage>>,
     group: Group,
 ) {
     let mut project_id_after = None;
     loop {
-        let res = fetch_group_projects(client.clone(), group.id, project_id_after).await;
+        let res = fetch_group_projects_paginated(client.clone(), group.id, project_id_after).await;
 
         match res {
             Err(err) => {
@@ -178,8 +171,12 @@ async fn fetch_all_projects_for_group(
             Ok(projects) => {
                 let new_project_id_after = projects.iter().map(|p| p.id).last();
                 for project in projects {
-                    log::debug!("group_id={} project={:?}", group.id, project);
-                    tx_projects.send(project).await.unwrap();
+                    log::debug!(
+                        "Fetched project: group_id={} project={:?}",
+                        group.id,
+                        project
+                    );
+                    tx_projects.try_send(project).unwrap();
                 }
 
                 if new_project_id_after == project_id_after || new_project_id_after.is_none() {
@@ -189,11 +186,6 @@ async fn fetch_all_projects_for_group(
             }
         }
     }
-    tx_groups
-        .send(GroupMessage::GroupDone)
-        .await
-        .with_context(|| "Failed to mark the group as done")
-        .unwrap();
 }
 
 #[tokio::main]
@@ -202,56 +194,25 @@ async fn main() -> Result<()> {
     let opts: Arc<Opts> = Arc::new(Opts::parse());
 
     let (tx_projects, rx_projects) = tokio::sync::mpsc::channel::<Project>(500);
-    let (tx_groups, mut rx_groups) = tokio::sync::mpsc::channel::<GroupMessage>(500);
-
-    let o = opts.clone();
-    tokio::spawn(async move {
-        let _ = clone_projects(rx_projects, o).await;
-    });
+    {
+        let o = opts.clone();
+        tokio::spawn(async move {
+            let _ = clone_projects(rx_projects, o).await;
+        });
+    }
 
     let client = make_http_client(&opts.api_token)?;
     let groups = fetch_groups(&client).await?;
     log::debug!("Groups: {:?}", groups);
 
-    let tx_groups = Arc::new(tx_groups);
-    for group in groups {
-        tx_groups
-            .send(GroupMessage::GroupTodo)
-            .await
-            .with_context(|| "Failed to record GroupTodo message")?;
-
+    futures::future::join_all(groups.into_iter().map(|group| {
         let client = client.clone();
         let tx_projects = tx_projects.clone();
 
-        let tx_groups = tx_groups.clone();
-        tokio::spawn(async move {
-            fetch_all_projects_for_group(client, tx_projects, tx_groups, group).await;
-        });
-    }
+        tokio::spawn(async move { fetch_all_projects_for_group(client, tx_projects, group).await })
+    }))
+    .await;
 
-    let mut todo_count: Option<usize> = None;
-    loop {
-        let group_message = rx_groups.recv().await;
-        log::debug!("todo_count={:?} message={:?}", todo_count, group_message);
-
-        match (group_message, todo_count) {
-            (None, _) => {
-                unreachable!();
-            }
-            (Some(GroupMessage::GroupTodo), None) => todo_count = Some(1),
-            (Some(GroupMessage::GroupTodo), Some(count)) => {
-                todo_count = Some(count + 1);
-            }
-            (Some(GroupMessage::GroupDone), None) => {
-                unreachable!();
-            }
-            (Some(GroupMessage::GroupDone), Some(1)) => {
-                log::debug!("Done");
-                return Ok(());
-            }
-            (Some(GroupMessage::GroupDone), Some(count)) => {
-                todo_count = Some(count - 1);
-            }
-        };
-    }
+    log::debug!("Done");
+    Ok(())
 }
