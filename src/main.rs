@@ -180,11 +180,6 @@ async fn fetch_all_projects_for_group(
                 for project in projects {
                     log::debug!("group_id={} project={:?}", group.id, project);
                     tx_projects.send(project).await.unwrap();
-                    tx_groups
-                        .send(GroupMessage::GroupDone)
-                        .await
-                        .with_context(|| "Failed to mark the group as done")
-                        .unwrap();
                 }
 
                 if new_project_id_after == project_id_after || new_project_id_after.is_none() {
@@ -194,6 +189,11 @@ async fn fetch_all_projects_for_group(
             }
         }
     }
+    tx_groups
+        .send(GroupMessage::GroupDone)
+        .await
+        .with_context(|| "Failed to mark the group as done")
+        .unwrap();
 }
 
 #[tokio::main]
@@ -229,19 +229,29 @@ async fn main() -> Result<()> {
         });
     }
 
-    let mut todo_count = None;
-    while todo_count.is_none() || todo_count.unwrap() > 0 {
-        while let Some(group_message) = rx_groups.recv().await {
-            match group_message {
-                GroupMessage::GroupTodo => {
-                    todo_count = todo_count.map(|c| c + 1).or(Some(1));
-                }
-                GroupMessage::GroupDone => {
-                    todo_count = Some(todo_count.unwrap() - 1);
-                }
-            }
-        }
-    }
+    let mut todo_count: Option<usize> = None;
+    loop {
+        let group_message = rx_groups.recv().await;
+        log::debug!("todo_count={:?} message={:?}", todo_count, group_message);
 
-    Ok(())
+        match (group_message, todo_count) {
+            (None, _) => {
+                unreachable!();
+            }
+            (Some(GroupMessage::GroupTodo), None) => todo_count = Some(1),
+            (Some(GroupMessage::GroupTodo), Some(count)) => {
+                todo_count = Some(count + 1);
+            }
+            (Some(GroupMessage::GroupDone), None) => {
+                unreachable!();
+            }
+            (Some(GroupMessage::GroupDone), Some(1)) => {
+                log::debug!("Done");
+                return Ok(());
+            }
+            (Some(GroupMessage::GroupDone), Some(count)) => {
+                todo_count = Some(count - 1);
+            }
+        };
+    }
 }
