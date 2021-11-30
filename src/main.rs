@@ -95,7 +95,7 @@ fn make_http_client(api_token: &str) -> Result<Client> {
         .with_context(|| "Failed to create http client")
 }
 
-async fn clone_projects(mut rx: Receiver<Project>, opts: Arc<Opts>) -> Result<()> {
+async fn clone_projects(mut rx_projects: Receiver<Project>, opts: Arc<Opts>) -> Result<()> {
     match std::fs::create_dir(&opts.directory) {
         Ok(_) => {}
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -108,9 +108,9 @@ async fn clone_projects(mut rx: Receiver<Project>, opts: Arc<Opts>) -> Result<()
         }
     }
 
-    while let Some(project) = rx.recv().await {
+    while let Some(project) = rx_projects.recv().await {
         let path = opts.directory.join(&project.path_with_namespace);
-        println!("Cloning project {:?} fs_path={:?}", &project, &path);
+        log::trace!("Cloning project {:?} fs_path={:?}", &project, &path);
 
         let opts = opts.clone();
         tokio::spawn(async move {
@@ -141,29 +141,37 @@ async fn clone_projects(mut rx: Receiver<Project>, opts: Arc<Opts>) -> Result<()
 
             match builder.clone(&project.http_url_to_repo, &path) {
                 Ok(_repo) => {
-                    println!("Cloned project={:?}", &project);
+                    log::info!("Cloned project={:?}", &project);
                 }
-                Err(e) => eprintln!("Failed to clone: project={:?} err={}", &project, e),
+                Err(e) => log::error!("Failed to clone: project={:?} err={}", &project, e),
             };
         });
     }
     Ok(())
 }
 
-async fn fetch_all_projects_for_group(client: reqwest::Client, tx: Sender<Project>, group: Group) {
+async fn fetch_all_projects_for_group(
+    client: reqwest::Client,
+    tx_projects: Sender<Project>,
+    group: Group,
+) {
     let mut project_id_after = None;
     loop {
         let res = fetch_group_projects(client.clone(), group.id, project_id_after).await;
         match res {
             Err(err) => {
-                eprintln!("Err: group_id={} err={}", group.id, err);
+                log::error!(
+                    "Failed to fetch projects: group_id={} err={}",
+                    group.id,
+                    err
+                );
                 break;
             }
             Ok(projects) => {
                 let new_project_id_after = projects.iter().map(|p| p.id).last();
                 for project in projects {
-                    println!("group_id={} project={:?}", group.id, project);
-                    tx.send(project).await.unwrap();
+                    log::debug!("group_id={} project={:?}", group.id, project);
+                    tx_projects.send(project).await.unwrap();
                 }
 
                 if new_project_id_after == project_id_after || new_project_id_after.is_none() {
@@ -177,22 +185,23 @@ async fn fetch_all_projects_for_group(client: reqwest::Client, tx: Sender<Projec
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    env_logger::init();
     let opts: Arc<Opts> = Arc::new(Opts::parse());
 
-    let (tx, rx) = tokio::sync::mpsc::channel::<Project>(500);
+    let (tx_projects, rx_projects) = tokio::sync::mpsc::channel::<Project>(500);
     let client = make_http_client(&opts.api_token)?;
-    let _: Result<()> = tokio::spawn(async move {
-        let groups = fetch_groups(&client).await?;
-        println!("Groups: {:?}", groups);
+    let groups = fetch_groups(&client).await?;
+    log::debug!("Groups: {:?}", groups);
 
+    let _: Result<()> = tokio::spawn(async move {
         let join_handles = groups
             .into_iter()
             .map(|group| {
                 let client = client.clone();
-                let tx = tx.clone();
+                let tx_projects = tx_projects.clone();
 
                 tokio::spawn(async move {
-                    fetch_all_projects_for_group(client, tx, group).await;
+                    fetch_all_projects_for_group(client, tx_projects, group).await;
                 })
             })
             .collect::<Vec<_>>();
@@ -202,5 +211,5 @@ async fn main() -> Result<()> {
     })
     .await?;
 
-    clone_projects(rx, opts.clone()).await
+    clone_projects(rx_projects, opts.clone()).await
 }
