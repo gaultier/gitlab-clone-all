@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use git2::{Cred, RemoteCallbacks};
+use indicatif::ProgressBar;
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
@@ -9,6 +10,12 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::{path::PathBuf, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
+
+#[derive(Debug)]
+enum ProjectAction {
+    ProjectToClone,
+    ProjectCloned,
+}
 
 #[derive(Debug, PartialEq)]
 enum CloneMethod {
@@ -95,7 +102,11 @@ fn make_http_client(api_token: &str) -> Result<Client> {
         .with_context(|| "Failed to create http client")
 }
 
-async fn clone_projects(mut rx_projects: Receiver<Project>, opts: Arc<Opts>) -> Result<()> {
+async fn clone_projects(
+    mut rx_projects: Receiver<Project>,
+    opts: Arc<Opts>,
+    tx_projects_actions: Sender<ProjectAction>,
+) -> Result<()> {
     match std::fs::create_dir(&opts.directory) {
         Ok(_) => {}
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -113,6 +124,7 @@ async fn clone_projects(mut rx_projects: Receiver<Project>, opts: Arc<Opts>) -> 
         log::trace!("Cloning project {:?} fs_path={:?}", &project, &path);
 
         let opts = opts.clone();
+        let tx_projects_actions = tx_projects_actions.clone();
         tokio::spawn(async move {
             let mut builder = if opts.clone_method == CloneMethod::Ssh {
                 let mut callbacks = RemoteCallbacks::new();
@@ -145,6 +157,10 @@ async fn clone_projects(mut rx_projects: Receiver<Project>, opts: Arc<Opts>) -> 
                 }
                 Err(e) => log::error!("Failed to clone: project={:?} err={}", &project, e),
             };
+            tx_projects_actions
+                .try_send(ProjectAction::ProjectCloned)
+                .with_context(|| "Failed to send ProjectCloned")
+                .unwrap();
         });
     }
     Ok(())
@@ -153,6 +169,7 @@ async fn clone_projects(mut rx_projects: Receiver<Project>, opts: Arc<Opts>) -> 
 async fn fetch_all_projects_for_group(
     client: reqwest::Client,
     tx_projects: Sender<Project>,
+    tx_projects_actions: Sender<ProjectAction>,
     group: Group,
 ) {
     let mut project_id_after = None;
@@ -171,12 +188,17 @@ async fn fetch_all_projects_for_group(
             Ok(projects) => {
                 let new_project_id_after = projects.iter().map(|p| p.id).last();
                 for project in projects {
-                    log::debug!(
-                        "Fetched project: group_id={} project={:?}",
-                        group.id,
-                        project
-                    );
-                    tx_projects.try_send(project).unwrap();
+                    log::debug!("group_id={} project={:?}", group.id, project);
+                    tx_projects
+                        .send(project)
+                        .await
+                        .with_context(|| "Failed to send project")
+                        .unwrap();
+                    tx_projects_actions
+                        .send(ProjectAction::ProjectToClone)
+                        .await
+                        .with_context(|| "Failed to send ProjectToClone")
+                        .unwrap();
                 }
 
                 if new_project_id_after == project_id_after || new_project_id_after.is_none() {
@@ -194,10 +216,14 @@ async fn main() -> Result<()> {
     let opts: Arc<Opts> = Arc::new(Opts::parse());
 
     let (tx_projects, rx_projects) = tokio::sync::mpsc::channel::<Project>(500);
+    let (tx_projects_actions, mut rx_projects_actions) =
+        tokio::sync::mpsc::channel::<ProjectAction>(500);
+
     {
-        let o = opts.clone();
+        let opts = opts.clone();
+        let tx_projects_actions = tx_projects_actions.clone();
         tokio::spawn(async move {
-            let _ = clone_projects(rx_projects, o).await;
+            let _ = clone_projects(rx_projects, opts, tx_projects_actions).await;
         });
     }
 
@@ -205,14 +231,48 @@ async fn main() -> Result<()> {
     let groups = fetch_groups(&client).await?;
     log::debug!("Groups: {:?}", groups);
 
-    futures::future::join_all(groups.into_iter().map(|group| {
+    let tx_projects_actions = tx_projects_actions.clone();
+    for group in groups {
         let client = client.clone();
         let tx_projects = tx_projects.clone();
 
-        tokio::spawn(async move { fetch_all_projects_for_group(client, tx_projects, group).await })
-    }))
-    .await;
+        let tx_projects_actions = tx_projects_actions.clone();
+        tokio::spawn(async move {
+            fetch_all_projects_for_group(client, tx_projects, tx_projects_actions, group).await;
+        });
+    }
 
-    log::debug!("Done");
-    Ok(())
+    let mut todo_count: Option<usize> = None;
+    // let pb = ProgressBar::new_spinner();
+
+    loop {
+        let group_message = rx_projects_actions.recv().await;
+        log::debug!("todo_count={:?} message={:?}", todo_count, group_message);
+
+        match (group_message, todo_count) {
+            (None, _) => {
+                unreachable!();
+            }
+            (Some(ProjectAction::ProjectToClone), None) => {
+                todo_count = Some(1);
+                // pb.tick();
+            }
+            (Some(ProjectAction::ProjectToClone), Some(count)) => {
+                todo_count = Some(count + 1);
+                // pb.tick();
+            }
+            (Some(ProjectAction::ProjectCloned), None) => {
+                unreachable!();
+            }
+            (Some(ProjectAction::ProjectCloned), Some(1)) => {
+                log::debug!("Done");
+                // pb.finish_with_message("Done!");
+                return Ok(());
+            }
+            (Some(ProjectAction::ProjectCloned), Some(count)) => {
+                todo_count = Some(count - 1);
+                // pb.tick();
+            }
+        };
+    }
 }
