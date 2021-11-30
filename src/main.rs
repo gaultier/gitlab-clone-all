@@ -10,6 +10,12 @@ use std::sync::Arc;
 use std::{path::PathBuf, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 
+#[derive(Debug)]
+enum GroupMessage {
+    GroupTodo,
+    GroupDone,
+}
+
 #[derive(Debug, PartialEq)]
 enum CloneMethod {
     Ssh,
@@ -153,11 +159,13 @@ async fn clone_projects(mut rx_projects: Receiver<Project>, opts: Arc<Opts>) -> 
 async fn fetch_all_projects_for_group(
     client: reqwest::Client,
     tx_projects: Sender<Project>,
+    tx_groups: Arc<Sender<GroupMessage>>,
     group: Group,
 ) {
     let mut project_id_after = None;
     loop {
         let res = fetch_group_projects(client.clone(), group.id, project_id_after).await;
+
         match res {
             Err(err) => {
                 log::error!(
@@ -172,6 +180,11 @@ async fn fetch_all_projects_for_group(
                 for project in projects {
                     log::debug!("group_id={} project={:?}", group.id, project);
                     tx_projects.send(project).await.unwrap();
+                    tx_groups
+                        .send(GroupMessage::GroupDone)
+                        .await
+                        .with_context(|| "Failed to mark the group as done")
+                        .unwrap();
                 }
 
                 if new_project_id_after == project_id_after || new_project_id_after.is_none() {
@@ -189,27 +202,46 @@ async fn main() -> Result<()> {
     let opts: Arc<Opts> = Arc::new(Opts::parse());
 
     let (tx_projects, rx_projects) = tokio::sync::mpsc::channel::<Project>(500);
+    let (tx_groups, mut rx_groups) = tokio::sync::mpsc::channel::<GroupMessage>(500);
+
+    let o = opts.clone();
+    tokio::spawn(async move {
+        let _ = clone_projects(rx_projects, o).await;
+    });
+
     let client = make_http_client(&opts.api_token)?;
     let groups = fetch_groups(&client).await?;
     log::debug!("Groups: {:?}", groups);
 
-    let _: Result<()> = tokio::spawn(async move {
-        let join_handles = groups
-            .into_iter()
-            .map(|group| {
-                let client = client.clone();
-                let tx_projects = tx_projects.clone();
+    let tx_groups = Arc::new(tx_groups);
+    for group in groups {
+        tx_groups
+            .send(GroupMessage::GroupTodo)
+            .await
+            .with_context(|| "Failed to record GroupTodo message")?;
 
-                tokio::spawn(async move {
-                    fetch_all_projects_for_group(client, tx_projects, group).await;
-                })
-            })
-            .collect::<Vec<_>>();
-        futures::future::join_all(join_handles).await;
+        let client = client.clone();
+        let tx_projects = tx_projects.clone();
 
-        Ok(())
-    })
-    .await?;
+        let tx_groups = tx_groups.clone();
+        tokio::spawn(async move {
+            fetch_all_projects_for_group(client, tx_projects, tx_groups, group).await;
+        });
+    }
 
-    clone_projects(rx_projects, opts.clone()).await
+    let mut todo_count = None;
+    while todo_count.is_none() || todo_count.unwrap() > 0 {
+        while let Some(group_message) = rx_groups.recv().await {
+            match group_message {
+                GroupMessage::GroupTodo => {
+                    todo_count = todo_count.map(|c| c + 1).or(Some(1));
+                }
+                GroupMessage::GroupDone => {
+                    todo_count = Some(todo_count.unwrap() - 1);
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
