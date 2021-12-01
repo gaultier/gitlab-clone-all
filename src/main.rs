@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use git2::{Cred, RemoteCallbacks};
-use indicatif::ProgressBar;
+// use indicatif::ProgressBar;
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
@@ -67,7 +67,8 @@ async fn fetch_groups(client: &reqwest::Client) -> Result<Vec<Group>> {
 
     let json = req.send().await?.text().await?;
 
-    let groups: Vec<Group> = serde_json::from_str(&json).context("failed to parse to JSON")?;
+    let groups: Vec<Group> = serde_json::from_str(&json)
+        .with_context(|| format!("Failed to parse to JSON: json={}", json))?;
 
     Ok(groups)
 }
@@ -82,7 +83,8 @@ async fn fetch_group_projects_paginated(
 
     let json = req.send().await?.text().await?;
 
-    let projects: Vec<Project> = serde_json::from_str(&json).context("failed to parse to JSON")?;
+    let projects: Vec<Project> = serde_json::from_str(&json)
+        .with_context(|| format!("Failed to parse to JSON: json={}", json))?;
 
     Ok(projects)
 }
@@ -219,26 +221,25 @@ async fn main() -> Result<()> {
     let (tx_projects_actions, mut rx_projects_actions) =
         tokio::sync::mpsc::channel::<ProjectAction>(500);
 
-    {
-        let opts = opts.clone();
-        let tx_projects_actions = tx_projects_actions.clone();
-        tokio::spawn(async move {
-            let _ = clone_projects(rx_projects, opts, tx_projects_actions).await;
-        });
-    }
+    let opts_1 = opts.clone();
+    let tx_projects_actions_1 = tx_projects_actions.clone();
+    tokio::spawn(async move {
+        if let Err(err) = clone_projects(rx_projects, opts_1, tx_projects_actions_1).await {
+            log::error!("Failed to clone projects: err={}", err);
+        }
+    });
 
     let client = make_http_client(&opts.api_token)?;
     let groups = fetch_groups(&client).await?;
     log::debug!("Groups: {:?}", groups);
 
-    let tx_projects_actions = tx_projects_actions.clone();
     for group in groups {
         let client = client.clone();
-        let tx_projects = tx_projects.clone();
+        let tx_projects_2 = tx_projects.clone();
 
-        let tx_projects_actions = tx_projects_actions.clone();
+        let tx_projects_actions_2 = tx_projects_actions.clone();
         tokio::spawn(async move {
-            fetch_all_projects_for_group(client, tx_projects, tx_projects_actions, group).await;
+            fetch_all_projects_for_group(client, tx_projects_2, tx_projects_actions_2, group).await;
         });
     }
 
