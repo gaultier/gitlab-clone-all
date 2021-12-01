@@ -98,7 +98,7 @@ fn make_http_client(api_token: &str) -> Result<Client> {
     );
 
     reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(20))
         .default_headers(headers)
         .build()
         .with_context(|| "Failed to create http client")
