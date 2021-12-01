@@ -165,6 +165,8 @@ async fn clone_projects(
                 .unwrap();
         });
     }
+
+    log::debug!("Finished cloning");
     Ok(())
 }
 
