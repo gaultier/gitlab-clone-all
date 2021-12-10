@@ -2,7 +2,6 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use git2::ErrorCode;
 use git2::{Cred, RemoteCallbacks};
-use indicatif::{ProgressBar, ProgressStyle};
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
@@ -267,10 +266,7 @@ async fn main() -> Result<()> {
     }
 
     let mut todo_count: Option<usize> = None;
-    let mut progress_bars = BTreeMap::new();
-    let spinner_style = ProgressStyle::default_spinner()
-        .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
-        .template("{prefix:.bold.dim} {spinner} {wide_msg}");
+    // let mut progress_bars = BTreeMap::new();
 
     loop {
         let group_message = rx_projects_actions.recv().await;
@@ -288,15 +284,6 @@ async fn main() -> Result<()> {
                 None,
             ) => {
                 todo_count = Some(1);
-                let pb = progress_bars.entry(group_id).or_insert(
-                    ProgressBar::new_spinner()
-                        .with_style(spinner_style.clone())
-                        .with_prefix(format!("Group: {}", group_id)),
-                );
-
-                pb.set_message(format!("Project: {}", project_id));
-
-                pb.tick();
             }
             (
                 Some(ProjectAction::ProjectToClone {
@@ -306,15 +293,6 @@ async fn main() -> Result<()> {
                 Some(count),
             ) => {
                 todo_count = Some(count + 1);
-                let pb = progress_bars.entry(group_id).or_insert(
-                    ProgressBar::new_spinner()
-                        .with_style(spinner_style.clone())
-                        .with_prefix(format!("Group: {}", group_id)),
-                );
-
-                pb.set_message(format!("Project: {}", project_id));
-
-                pb.tick();
             }
             (Some(ProjectAction::ProjectCloned { .. }), None) => {
                 unreachable!();
@@ -327,7 +305,6 @@ async fn main() -> Result<()> {
                 Some(1),
             ) => {
                 log::debug!("Done");
-                progress_bars[&group_id].tick();
                 return Ok(());
             }
             (
@@ -338,7 +315,6 @@ async fn main() -> Result<()> {
                 Some(count),
             ) => {
                 todo_count = Some(count - 1);
-                progress_bars[&group_id].tick();
             }
         };
     }
