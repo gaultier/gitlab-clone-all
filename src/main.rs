@@ -153,7 +153,12 @@ async fn clone_projects(
                 git2::build::RepoBuilder::new()
             };
 
-            match builder.clone(&project.http_url_to_repo, &path) {
+            let url_to_repo = match opts.clone_method {
+                CloneMethod::Ssh => &project.ssh_url_to_repo,
+                CloneMethod::Https => &project.http_url_to_repo,
+            };
+
+            match builder.clone(url_to_repo, &path) {
                 Ok(_repo) => {
                     log::info!("Cloned project={:?}", &project);
                 }
