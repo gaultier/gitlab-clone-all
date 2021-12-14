@@ -1,12 +1,12 @@
 use anyhow::{bail, Context, Result};
 use clap::Parser;
+use console::style;
 use git2::ErrorCode;
 use git2::{Cred, RemoteCallbacks};
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
 use serde::Deserialize;
-use std::collections::BTreeMap;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{path::PathBuf, time::Duration};
@@ -14,8 +14,8 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug)]
 enum ProjectAction {
-    ProjectToClone { group_id: u64, project_id: u64 },
-    ProjectCloned { group_id: u64, project_id: u64 },
+    ProjectToClone,
+    ProjectCloned { project_path: String },
 }
 
 #[derive(Debug, PartialEq)]
@@ -51,7 +51,6 @@ struct Opts {
 #[derive(Debug, Deserialize)]
 struct Group {
     id: u64,
-    name: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,8 +59,6 @@ struct Project {
     ssh_url_to_repo: String,
     http_url_to_repo: String,
     path_with_namespace: String,
-    #[serde(skip)]
-    group_id: u64,
 }
 
 async fn fetch_groups(client: &reqwest::Client) -> Result<Vec<Group>> {
@@ -89,10 +86,7 @@ async fn fetch_group_projects_paginated(
     let projects: Vec<Project> = serde_json::from_str(&json)
         .with_context(|| format!("Failed to parse to JSON: json={}", json))?;
 
-    Ok(projects
-        .into_iter()
-        .map(|p| Project { group_id, ..p })
-        .collect::<Vec<Project>>())
+    Ok(projects)
 }
 
 fn make_http_client(api_token: &str) -> Result<Client> {
@@ -175,8 +169,7 @@ async fn clone_projects(
             };
             tx_projects_actions
                 .try_send(ProjectAction::ProjectCloned {
-                    group_id: project.group_id,
-                    project_id: project.id,
+                    project_path: project.path_with_namespace,
                 })
                 .with_context(|| "Failed to send ProjectCloned")
                 .unwrap();
@@ -211,10 +204,7 @@ async fn fetch_all_projects_for_group(
                 for project in projects {
                     log::debug!("group_id={} project={:?}", group.id, project);
                     tx_projects_actions
-                        .send(ProjectAction::ProjectToClone {
-                            group_id: group.id,
-                            project_id: project.id,
-                        })
+                        .send(ProjectAction::ProjectToClone)
                         .await
                         .with_context(|| "Failed to send ProjectToClone")
                         .unwrap();
@@ -272,49 +262,21 @@ async fn main() -> Result<()> {
         let group_message = rx_projects_actions.recv().await;
         log::debug!("todo_count={:?} message={:?}", todo_count, group_message);
 
-        match (group_message, todo_count) {
-            (None, _) => {
+        match group_message {
+            None => {
                 unreachable!();
             }
-            (
-                Some(ProjectAction::ProjectToClone {
-                    project_id,
-                    group_id,
-                }),
-                None,
-            ) => {
-                todo_count = Some(1);
+            Some(ProjectAction::ProjectToClone) => {
+                todo_count = todo_count.or(Some(1)).map(|n| n + 1);
             }
-            (
-                Some(ProjectAction::ProjectToClone {
-                    project_id,
-                    group_id,
-                }),
-                Some(count),
-            ) => {
-                todo_count = Some(count + 1);
-            }
-            (Some(ProjectAction::ProjectCloned { .. }), None) => {
-                unreachable!();
-            }
-            (
-                Some(ProjectAction::ProjectCloned {
-                    project_id: _,
-                    group_id,
-                }),
-                Some(1),
-            ) => {
-                log::debug!("Done");
-                return Ok(());
-            }
-            (
-                Some(ProjectAction::ProjectCloned {
-                    project_id: _,
-                    group_id,
-                }),
-                Some(count),
-            ) => {
-                todo_count = Some(count - 1);
+            Some(ProjectAction::ProjectCloned { project_path, .. }) => {
+                todo_count = todo_count.map(|n| n - 1);
+                println!("{} {}", style("✓").green(), project_path);
+
+                if todo_count == Some(1) {
+                    log::debug!("Done");
+                    return Ok(());
+                }
             }
         };
     }
