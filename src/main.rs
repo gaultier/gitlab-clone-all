@@ -317,7 +317,7 @@ async fn main() -> Result<()> {
                 );
             }
         };
-        if todo_count == Some(0) {
+        if todo_count.unwrap_or(0) == 0 {
             log::debug!("Done");
             println!(
                 "Successfully cloned: {}/{} ({})",
