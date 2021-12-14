@@ -74,12 +74,12 @@ struct Project {
 
 async fn fetch_groups(client: &reqwest::Client, gitlab_url: &str) -> Result<Vec<Group>> {
     let req = client
-        .get(format!("https://{}/api/v4/groups?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100", gitlab_url)); // TODO: pagination
+        .get(format!("https://{}/api/v4/groups?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&per_page=100", gitlab_url)); // TODO: pagination
 
     let json = req.send().await?.text().await?;
 
     let groups: Vec<Group> = serde_json::from_str(&json)
-        .with_context(|| format!("Failed to parse to JSON: json={}", json))?;
+        .with_context(|| format!("Failed to parse groups from JSON: json={}", json))?;
 
     Ok(groups)
 }
@@ -95,7 +95,7 @@ async fn fetch_group_projects_paginated(
     let json = req.send().await?.text().await?;
 
     let projects: Vec<Project> = serde_json::from_str(&json)
-        .with_context(|| format!("Failed to parse to JSON: json={}", json))?;
+        .with_context(|| format!("Failed to parse projects from JSON: json={}", json))?;
 
     Ok(projects)
 }
