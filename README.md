@@ -18,6 +18,9 @@ $ ./target/release/gitlab-clone-all --api-token <API_TOKEN> --clone-method=https
 ## Development
 
 ```sh
+# Optional
+$ export RUST_LOG=debug
+
 $ cargo r -- --api-token="$GITLAB_API_TOKEN" --directory=/tmp/$(date +%s) --clone-method=ssh
 ```
 
