@@ -1,6 +1,6 @@
 # gitlab_clone_all
 
-Clone all projects from Gitlab locally.
+Clone locally all git projects from Gitlab. 
 
 ## Usage
 
