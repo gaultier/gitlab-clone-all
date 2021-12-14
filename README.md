@@ -7,6 +7,7 @@ Clone all projects from Gitlab locally.
 *The api token is optional. Without it, only publicly accesible repositories can be cloned.*
 
 ```sh
+# Requires libgit2 & openssl e.g. `brew install openssl libgit2`
 $ cargo build --release
 
 $ ./target/release/gitlab-clone-all --help
