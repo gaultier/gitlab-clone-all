@@ -1,4 +1,4 @@
-# gitlab-clone-all
+# gitlab_clone_all
 
 Clone all projects from Gitlab locally.
 
