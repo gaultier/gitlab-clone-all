@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use bytesize::ByteSize;
 use clap::Parser;
 use console::style;
 use git2::ErrorCode;
@@ -7,6 +8,7 @@ use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
 use serde::Deserialize;
+use std::cell::RefCell;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::{path::PathBuf, time::Duration};
@@ -15,7 +17,10 @@ use tokio::sync::mpsc::{Receiver, Sender};
 #[derive(Debug)]
 enum ProjectAction {
     ProjectToClone,
-    ProjectCloned { project_path: String },
+    ProjectCloned {
+        project_path: String,
+        received_bytes: usize,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -128,6 +133,7 @@ async fn clone_projects(
         let opts = opts.clone();
         let tx_projects_actions = tx_projects_actions.clone();
         tokio::spawn(async move {
+            let received_bytes = RefCell::new(0usize);
             let mut builder = if opts.clone_method == CloneMethod::Ssh {
                 let mut callbacks = RemoteCallbacks::new();
                 callbacks.credentials(|_url, username_from_url, _allowed_types| {
@@ -140,6 +146,10 @@ async fn clone_projects(
                         )),
                         None,
                     )
+                });
+                callbacks.transfer_progress(|stats| {
+                    received_bytes.replace_with(|old| *old + stats.received_bytes());
+                    true
                 });
                 // Prepare fetch options.
                 let mut fo = git2::FetchOptions::new();
@@ -170,6 +180,7 @@ async fn clone_projects(
             tx_projects_actions
                 .try_send(ProjectAction::ProjectCloned {
                     project_path: project.path_with_namespace,
+                    received_bytes: received_bytes.take(),
                 })
                 .with_context(|| "Failed to send ProjectCloned")
                 .unwrap();
@@ -256,6 +267,9 @@ async fn main() -> Result<()> {
     }
 
     let mut todo_count: Option<usize> = None;
+    let mut total_count = 0usize;
+    let mut cloned_count = 0usize;
+    let mut total_bytes = 0usize;
 
     loop {
         let group_message = rx_projects_actions.recv().await;
@@ -267,13 +281,30 @@ async fn main() -> Result<()> {
             }
             Some(ProjectAction::ProjectToClone) => {
                 todo_count = todo_count.map(|n| n + 1).or(Some(1));
+                total_count += 1;
             }
-            Some(ProjectAction::ProjectCloned { project_path, .. }) => {
+            Some(ProjectAction::ProjectCloned {
+                project_path,
+                received_bytes,
+            }) => {
+                cloned_count += 1;
+                total_bytes += received_bytes;
                 todo_count = todo_count.map(|n| n - 1);
-                println!("{} {}", style("✓").green(), project_path);
+                println!(
+                    "{} {} ({})",
+                    style("✓").green(),
+                    project_path,
+                    ByteSize(received_bytes as u64)
+                );
 
                 if todo_count == Some(0) {
                     log::debug!("Done");
+                    println!(
+                        "Successfully cloned: {}/{} ({})",
+                        cloned_count,
+                        total_count,
+                        ByteSize(total_bytes as u64)
+                    );
                     return Ok(());
                 }
             }
