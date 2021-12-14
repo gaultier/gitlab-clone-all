@@ -13,3 +13,10 @@ $ cargo build --release
 $ ./target/release/gitlab-clone-all --help
 $ ./target/release/gitlab-clone-all --api-token <API_TOKEN> --clone-method=https --directory=/tmp/
 ```
+
+
+## Development
+
+```sh
+$ cargo r -- --api-token="$GITLAB_API_TOKEN" --directory=/tmp/$(date +%s) --clone-method=ssh
+```
