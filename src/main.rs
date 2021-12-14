@@ -2,8 +2,8 @@ use anyhow::{bail, Context, Result};
 use bytesize::ByteSize;
 use clap::Parser;
 use console::style;
-use git2::ErrorCode;
-use git2::{Cred, RemoteCallbacks};
+use git2::build::CheckoutBuilder;
+use git2::{Cred, ErrorCode, RemoteCallbacks};
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
@@ -168,6 +168,12 @@ async fn clone_projects(
             } else {
                 git2::build::RepoBuilder::new()
             };
+
+            let mut co = CheckoutBuilder::new();
+            co.progress(|path, cur, total| {
+                log::debug!("{:?} {}/{}", path, cur, total);
+            });
+            builder.with_checkout(co);
 
             let url_to_repo = match opts.clone_method {
                 CloneMethod::Ssh => &project.ssh_url_to_repo,
