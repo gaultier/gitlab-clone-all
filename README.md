@@ -20,3 +20,9 @@ $ ./target/release/gitlab-clone-all --api-token <API_TOKEN> --clone-method=https
 ```sh
 $ cargo r -- --api-token="$GITLAB_API_TOKEN" --directory=/tmp/$(date +%s) --clone-method=ssh
 ```
+
+
+## Roadmap
+
+
+- [ ] Retrying
