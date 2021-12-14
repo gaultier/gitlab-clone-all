@@ -148,7 +148,7 @@ async fn clone_projects(
                     )
                 });
                 callbacks.transfer_progress(|stats| {
-                    received_bytes.replace_with(|old| *old + stats.received_bytes());
+                    received_bytes.replace(stats.received_bytes());
                     true
                 });
                 // Prepare fetch options.
