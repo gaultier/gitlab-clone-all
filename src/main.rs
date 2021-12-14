@@ -16,12 +16,12 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug)]
 enum ProjectAction {
-    ProjectToClone,
-    ProjectCloned {
+    ToClone,
+    Cloned {
         project_path: String,
         received_bytes: usize,
     },
-    ProjectFailed {
+    Failed {
         project_path: String,
         err: String,
     },
@@ -178,7 +178,7 @@ async fn clone_projects(
                 Ok(_repo) => {
                     log::info!("Cloned project={:?}", &project);
                     tx_projects_actions
-                        .try_send(ProjectAction::ProjectCloned {
+                        .try_send(ProjectAction::Cloned {
                             project_path: project.path_with_namespace,
                             received_bytes: received_bytes.take(),
                         })
@@ -191,7 +191,7 @@ async fn clone_projects(
                 Err(e) => {
                     log::error!("Failed to clone: project={:?} err={}", &project, e);
                     tx_projects_actions
-                        .try_send(ProjectAction::ProjectFailed {
+                        .try_send(ProjectAction::Failed {
                             project_path: project.path_with_namespace,
                             err: e.to_string(),
                         })
@@ -230,7 +230,7 @@ async fn fetch_all_projects_for_group(
                 for project in projects {
                     log::debug!("group_id={} project={:?}", group.id, project);
                     tx_projects_actions
-                        .send(ProjectAction::ProjectToClone)
+                        .send(ProjectAction::ToClone)
                         .await
                         .with_context(|| "Failed to send ProjectToClone")
                         .unwrap();
@@ -295,15 +295,15 @@ async fn main() -> Result<()> {
             None => {
                 unreachable!();
             }
-            Some(ProjectAction::ProjectToClone) => {
+            Some(ProjectAction::ToClone) => {
                 todo_count = todo_count.map(|n| n + 1).or(Some(1));
                 total_count += 1;
             }
-            Some(ProjectAction::ProjectFailed { project_path, err }) => {
+            Some(ProjectAction::Failed { project_path, err }) => {
                 todo_count = todo_count.map(|n| n - 1);
                 println!("{} {} ({})", style("❌").red(), project_path, err,);
             }
-            Some(ProjectAction::ProjectCloned {
+            Some(ProjectAction::Cloned {
                 project_path,
                 received_bytes,
             }) => {
