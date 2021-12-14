@@ -49,6 +49,8 @@ struct Opts {
     directory: PathBuf,
     #[clap(short, long, default_value = "")]
     api_token: String,
+    #[clap(short, long, default_value = "gitlab.com")]
+    url: String,
     #[clap(short, long, possible_values = &["https","ssh"], default_value="https")]
     clone_method: CloneMethod,
 }
@@ -66,9 +68,9 @@ struct Project {
     path_with_namespace: String,
 }
 
-async fn fetch_groups(client: &reqwest::Client) -> Result<Vec<Group>> {
+async fn fetch_groups(client: &reqwest::Client, gitlab_url: &str) -> Result<Vec<Group>> {
     let req = client
-        .get("https://gitlab.ppro.com/api/v4/groups?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100"); // TODO: pagination
+        .get(format!("https://{}/api/v4/groups?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100", gitlab_url)); // TODO: pagination
 
     let json = req.send().await?.text().await?;
 
@@ -253,7 +255,7 @@ async fn main() -> Result<()> {
     });
 
     let client = make_http_client(&opts.api_token)?;
-    let groups = fetch_groups(&client).await?;
+    let groups = fetch_groups(&client, &opts.url).await?;
     log::debug!("Groups: {:?}", groups);
 
     for group in groups {
