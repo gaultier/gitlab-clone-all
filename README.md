@@ -4,7 +4,7 @@ Clone all projects from Gitlab locally.
 
 ## Usage
 
-*The api token is optional. Without it, only publicly accesible repositories can be cloned.*
+*The api token is optional. Without it, only publicly accessible repositories can be cloned.*
 
 ```sh
 # Requires libgit2 & openssl e.g. `brew install openssl libgit2`
