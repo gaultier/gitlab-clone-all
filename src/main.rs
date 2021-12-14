@@ -267,13 +267,13 @@ async fn main() -> Result<()> {
                 unreachable!();
             }
             Some(ProjectAction::ProjectToClone) => {
-                todo_count = todo_count.or(Some(1)).map(|n| n + 1);
+                todo_count = todo_count.map(|n| n + 1).or(Some(1));
             }
             Some(ProjectAction::ProjectCloned { project_path, .. }) => {
                 todo_count = todo_count.map(|n| n - 1);
                 println!("{} {}", style("✓").green(), project_path);
 
-                if todo_count == Some(1) {
+                if todo_count == Some(0) {
                     log::debug!("Done");
                     return Ok(());
                 }
