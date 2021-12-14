@@ -193,7 +193,15 @@ async fn clone_projects(
                 }
                 // Swallow this error
                 // TODO: Should we pull in that case?
-                Err(e) if e.code() == ErrorCode::Exists => {}
+                Err(e) if e.code() == ErrorCode::Exists => {
+                    tx_projects_actions
+                        .try_send(ProjectAction::Cloned {
+                            project_path: project.path_with_namespace,
+                            received_bytes: received_bytes.take(),
+                        })
+                        .with_context(|| "Failed to send ProjectCloned")
+                        .unwrap();
+                }
                 Err(e) => {
                     log::error!("Failed to clone: project={:?} err={}", &project, e);
                     tx_projects_actions
