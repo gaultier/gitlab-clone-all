@@ -21,6 +21,10 @@ enum ProjectAction {
         project_path: String,
         received_bytes: usize,
     },
+    ProjectFailed {
+        project_path: String,
+        err: String,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -173,19 +177,28 @@ async fn clone_projects(
             match builder.clone(url_to_repo, &path) {
                 Ok(_repo) => {
                     log::info!("Cloned project={:?}", &project);
+                    tx_projects_actions
+                        .try_send(ProjectAction::ProjectCloned {
+                            project_path: project.path_with_namespace,
+                            received_bytes: received_bytes.take(),
+                        })
+                        .with_context(|| "Failed to send ProjectCloned")
+                        .unwrap();
                 }
                 // Swallow this error
                 // TODO: Should we pull in that case?
                 Err(e) if e.code() == ErrorCode::Exists => {}
-                Err(e) => log::error!("Failed to clone: project={:?} err={}", &project, e),
+                Err(e) => {
+                    log::error!("Failed to clone: project={:?} err={}", &project, e);
+                    tx_projects_actions
+                        .try_send(ProjectAction::ProjectFailed {
+                            project_path: project.path_with_namespace,
+                            err: e.to_string(),
+                        })
+                        .with_context(|| "Failed to send ProjectFailed")
+                        .unwrap();
+                }
             };
-            tx_projects_actions
-                .try_send(ProjectAction::ProjectCloned {
-                    project_path: project.path_with_namespace,
-                    received_bytes: received_bytes.take(),
-                })
-                .with_context(|| "Failed to send ProjectCloned")
-                .unwrap();
         });
     }
 
@@ -285,6 +298,10 @@ async fn main() -> Result<()> {
                 todo_count = todo_count.map(|n| n + 1).or(Some(1));
                 total_count += 1;
             }
+            Some(ProjectAction::ProjectFailed { project_path, err }) => {
+                todo_count = todo_count.map(|n| n - 1);
+                println!("{} {} ({})", style("❌").red(), project_path, err,);
+            }
             Some(ProjectAction::ProjectCloned {
                 project_path,
                 received_bytes,
@@ -298,18 +315,17 @@ async fn main() -> Result<()> {
                     project_path,
                     ByteSize(received_bytes as u64)
                 );
-
-                if todo_count == Some(0) {
-                    log::debug!("Done");
-                    println!(
-                        "Successfully cloned: {}/{} ({})",
-                        cloned_count,
-                        total_count,
-                        ByteSize(total_bytes as u64)
-                    );
-                    return Ok(());
-                }
             }
         };
+        if todo_count == Some(0) {
+            log::debug!("Done");
+            println!(
+                "Successfully cloned: {}/{} ({})",
+                cloned_count,
+                total_count,
+                ByteSize(total_bytes as u64)
+            );
+            return Ok(());
+        }
     }
 }
