@@ -256,7 +256,6 @@ async fn main() -> Result<()> {
     }
 
     let mut todo_count: Option<usize> = None;
-    // let mut progress_bars = BTreeMap::new();
 
     loop {
         let group_message = rx_projects_actions.recv().await;
