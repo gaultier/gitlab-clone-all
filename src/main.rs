@@ -254,6 +254,7 @@ async fn fetch_all_projects_for_group(
 async fn main() -> Result<()> {
     env_logger::init();
     let opts: Arc<Opts> = Arc::new(Opts::parse());
+    let start = std::time::Instant::now();
 
     let (tx_projects, rx_projects) = tokio::sync::mpsc::channel::<Project>(500);
     let (tx_projects_actions, mut rx_projects_actions) =
@@ -320,10 +321,11 @@ async fn main() -> Result<()> {
         if todo_count.unwrap_or(0) == 0 {
             log::debug!("Done");
             println!(
-                "Successfully cloned: {}/{} ({})",
+                "Successfully cloned: {}/{} ({})\nDuration: {:?}",
                 cloned_count,
                 total_count,
-                ByteSize(total_bytes as u64)
+                ByteSize(total_bytes as u64),
+                start.elapsed(),
             );
             return Ok(());
         }
