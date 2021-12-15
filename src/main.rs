@@ -241,6 +241,7 @@ async fn fetch_projects(
     Ok(())
 }
 
+// Needed to expand `~` which is otherwise understood literally as a relative path
 fn expand_path(path: &Path) -> PathBuf {
     let raw_path = PathBuf::from(path);
     let home = dirs::home_dir().unwrap().as_os_str().to_owned();
