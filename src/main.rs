@@ -81,6 +81,7 @@ async fn fetch_groups(client: &reqwest::Client, gitlab_url: &str) -> Result<Vec<
     let groups: Vec<Group> = serde_json::from_str(&json)
         .with_context(|| format!("Failed to parse groups from JSON: json={}", json))?;
 
+    log::debug!("Fetch groups: count={}", groups.len());
     Ok(groups)
 }
 
@@ -97,6 +98,11 @@ async fn fetch_group_projects_paginated(
     let projects: Vec<Project> = serde_json::from_str(&json)
         .with_context(|| format!("Failed to parse projects from JSON: json={}", json))?;
 
+    log::debug!(
+        "Fetch projects: count={} group={}",
+        projects.len(),
+        group_id
+    );
     Ok(projects)
 }
 
@@ -134,7 +140,7 @@ async fn clone_projects(
 
     while let Some(project) = rx_projects.recv().await {
         let path = opts.directory.join(&project.path_with_namespace);
-        log::trace!("Cloning project {:?} fs_path={:?}", &project, &path);
+        log::debug!("Cloning project {:?} fs_path={:?}", &project, &path);
 
         let opts = opts.clone();
         let tx_projects_actions = tx_projects_actions.clone();
