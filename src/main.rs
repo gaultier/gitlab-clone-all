@@ -105,7 +105,7 @@ async fn clone_projects(
     opts: Arc<Opts>,
     tx_projects_actions: Sender<ProjectAction>,
 ) -> Result<()> {
-    match std::fs::create_dir(&opts.directory) {
+    match std::fs::create_dir_all(&opts.directory) {
         Ok(_) => {}
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(err) => {
