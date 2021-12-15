@@ -246,7 +246,7 @@ fn expand_path(path: &Path) -> PathBuf {
     expanded_path
 }
 
-fn create_if_not_exists(path: &Path) -> Result<()> {
+fn create_dir_if_not_exists(path: &Path) -> Result<()> {
     match std::fs::create_dir_all(path) {
         Ok(_) => {}
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
@@ -273,7 +273,7 @@ async fn main() -> Result<()> {
 
     let tx_projects_actions_1 = tx_projects_actions.clone();
     let expanded_path = expand_path(&opts.directory);
-    create_if_not_exists(&expanded_path)
+    create_dir_if_not_exists(&expanded_path)
         .with_context(|| "Failed to create directory given on the CLI")?;
 
     let clone_method = opts.clone_method;
