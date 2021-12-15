@@ -2,6 +2,8 @@
 
 Clone locally all git projects from Gitlab. This is handy for example to search locally with `ripgrep` very quickly, or hack on projects.
 
+Every project is cloned concurrently for maximum performance and the memory usage remains under 70MiB even with thousands of big projects.
+
 ## Usage
 
 *The api token is optional. Without it, only publicly accessible repositories can be cloned.*
