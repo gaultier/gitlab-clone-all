@@ -127,8 +127,22 @@ async fn clone_projects(
             let received_bytes = RefCell::new(0usize);
             let received_objects = RefCell::new(0usize);
 
-            let mut builder = if opts.clone_method == CloneMethod::Ssh {
-                let mut callbacks = RemoteCallbacks::new();
+            let mut builder = git2::build::RepoBuilder::new();
+            let mut callbacks = RemoteCallbacks::new();
+            callbacks.transfer_progress(|stats| {
+                received_bytes.replace(stats.received_bytes());
+                received_objects.replace(stats.received_objects());
+                true
+            });
+            let mut co = CheckoutBuilder::new();
+            co.progress(|path, cur, total| {
+                log::debug!("{:?} {}/{}", path, cur, total);
+            });
+            builder.with_checkout(co);
+            // Prepare fetch options.
+            let mut fo = git2::FetchOptions::new();
+
+            if opts.clone_method == CloneMethod::Ssh {
                 callbacks.credentials(|_url, username_from_url, _allowed_types| {
                     Cred::ssh_key(
                         username_from_url.unwrap(),
@@ -140,28 +154,9 @@ async fn clone_projects(
                         None,
                     )
                 });
-                callbacks.transfer_progress(|stats| {
-                    received_bytes.replace(stats.received_bytes());
-                    received_objects.replace(stats.received_objects());
-                    true
-                });
-                // Prepare fetch options.
-                let mut fo = git2::FetchOptions::new();
-                fo.remote_callbacks(callbacks);
-
-                // Prepare builder.
-                let mut builder = git2::build::RepoBuilder::new();
-                builder.fetch_options(fo);
-                builder
-            } else {
-                git2::build::RepoBuilder::new()
-            };
-
-            let mut co = CheckoutBuilder::new();
-            co.progress(|path, cur, total| {
-                log::debug!("{:?} {}/{}", path, cur, total);
-            });
-            builder.with_checkout(co);
+            }
+            fo.remote_callbacks(callbacks);
+            builder.fetch_options(fo);
 
             let url_to_repo = match opts.clone_method {
                 CloneMethod::Ssh => &project.ssh_url_to_repo,
