@@ -20,6 +20,7 @@ enum ProjectAction {
     Cloned {
         project_path: String,
         received_bytes: usize,
+        received_objects: usize,
     },
     Failed {
         project_path: String,
@@ -146,6 +147,8 @@ async fn clone_projects(
         let tx_projects_actions = tx_projects_actions.clone();
         tokio::spawn(async move {
             let received_bytes = RefCell::new(0usize);
+            let received_objects = RefCell::new(0usize);
+
             let mut builder = if opts.clone_method == CloneMethod::Ssh {
                 let mut callbacks = RemoteCallbacks::new();
                 callbacks.credentials(|_url, username_from_url, _allowed_types| {
@@ -161,6 +164,7 @@ async fn clone_projects(
                 });
                 callbacks.transfer_progress(|stats| {
                     received_bytes.replace(stats.received_bytes());
+                    received_objects.replace(stats.received_objects());
                     true
                 });
                 // Prepare fetch options.
@@ -193,6 +197,7 @@ async fn clone_projects(
                         .try_send(ProjectAction::Cloned {
                             project_path: project.path_with_namespace,
                             received_bytes: received_bytes.take(),
+                            received_objects: received_objects.take(),
                         })
                         .with_context(|| "Failed to send ProjectCloned")
                         .unwrap();
@@ -204,6 +209,7 @@ async fn clone_projects(
                         .try_send(ProjectAction::Cloned {
                             project_path: project.path_with_namespace,
                             received_bytes: received_bytes.take(),
+                            received_objects: received_objects.take(),
                         })
                         .with_context(|| "Failed to send ProjectCloned")
                         .unwrap();
@@ -331,15 +337,17 @@ async fn main() -> Result<()> {
             Some(ProjectAction::Cloned {
                 project_path,
                 received_bytes,
+                received_objects,
             }) => {
                 cloned_count += 1;
                 total_bytes += received_bytes;
                 todo_count = todo_count.map(|n| n - 1);
                 println!(
-                    "{} {} ({})",
+                    "{} {} ({}, {} objects)",
                     style("✓").green(),
                     project_path,
-                    ByteSize(received_bytes as u64)
+                    ByteSize(received_bytes as u64),
+                    received_objects
                 );
             }
         };
