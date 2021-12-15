@@ -81,7 +81,6 @@ async fn fetch_groups(client: &reqwest::Client, gitlab_url: &str) -> Result<Vec<
     let groups: Vec<Group> = serde_json::from_str(&json)
         .with_context(|| format!("Failed to parse groups from JSON: json={}", json))?;
 
-    log::debug!("Fetch groups: count={}", groups.len());
     Ok(groups)
 }
 
@@ -89,9 +88,10 @@ async fn fetch_group_projects_paginated(
     client: reqwest::Client,
     group_id: u64,
     project_id_after: Option<u64>,
+    gitlab_url: &str,
 ) -> Result<Vec<Project>> {
     let  req = client
-        .get(format!("https://gitlab.ppro.com/api/v4/groups/{}/projects?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100&id_after={}", group_id, project_id_after.unwrap_or(0)));
+        .get(format!("https://{}/api/v4/groups/{}/projects?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100&id_after={}",gitlab_url, group_id, project_id_after.unwrap_or(0)));
 
     let json = req.send().await?.text().await?;
 
@@ -231,43 +231,36 @@ async fn fetch_all_projects_for_group(
     tx_projects: Sender<Project>,
     tx_projects_actions: Sender<ProjectAction>,
     group: Group,
-) {
+    gitlab_url: &str,
+) -> Result<()> {
     let mut project_id_after = None;
     loop {
-        let res = fetch_group_projects_paginated(client.clone(), group.id, project_id_after).await;
+        let projects =
+            fetch_group_projects_paginated(client.clone(), group.id, project_id_after, gitlab_url)
+                .await
+                .with_context(|| format!("Failed to fetch projects: group_id={}", group.id))?;
 
-        match res {
-            Err(err) => {
-                log::error!(
-                    "Failed to fetch projects: group_id={} err={}",
-                    group.id,
-                    err
-                );
-                break;
-            }
-            Ok(projects) => {
-                let new_project_id_after = projects.iter().map(|p| p.id).last();
-                for project in projects {
-                    log::debug!("group_id={} project={:?}", group.id, project);
-                    tx_projects_actions
-                        .send(ProjectAction::ToClone)
-                        .await
-                        .with_context(|| "Failed to send ProjectToClone")
-                        .unwrap();
-                    tx_projects
-                        .send(project)
-                        .await
-                        .with_context(|| "Failed to send project")
-                        .unwrap();
-                }
-
-                if new_project_id_after == project_id_after || new_project_id_after.is_none() {
-                    break;
-                }
-                project_id_after = new_project_id_after;
-            }
+        let new_project_id_after = projects.iter().map(|p| p.id).last();
+        for project in projects {
+            log::debug!("group_id={} project={:?}", group.id, project);
+            tx_projects_actions
+                .send(ProjectAction::ToClone)
+                .await
+                .with_context(|| "Failed to send ProjectToClone")
+                .unwrap();
+            tx_projects
+                .send(project)
+                .await
+                .with_context(|| "Failed to send project")
+                .unwrap();
         }
+
+        if new_project_id_after == project_id_after || new_project_id_after.is_none() {
+            break;
+        }
+        project_id_after = new_project_id_after;
     }
+    Ok(())
 }
 
 #[tokio::main]
@@ -291,14 +284,26 @@ async fn main() -> Result<()> {
     let client = make_http_client(&opts.api_token)?;
     let groups = fetch_groups(&client, &opts.url).await?;
     log::debug!("Groups: {:?}", groups);
+    let url = Arc::new(opts.url.clone());
 
     for group in groups {
         let client = client.clone();
         let tx_projects_2 = tx_projects.clone();
+        let url = url.clone();
 
         let tx_projects_actions_2 = tx_projects_actions.clone();
         tokio::spawn(async move {
-            fetch_all_projects_for_group(client, tx_projects_2, tx_projects_actions_2, group).await;
+            let _ = fetch_all_projects_for_group(
+                client,
+                tx_projects_2,
+                tx_projects_actions_2,
+                group,
+                &url,
+            )
+            .await
+            .map_err(|err| {
+                log::error!("Failed to fetch projects for group: {}", err);
+            });
         });
     }
 
