@@ -61,11 +61,6 @@ struct Opts {
 }
 
 #[derive(Debug, Deserialize)]
-struct Group {
-    id: u64,
-}
-
-#[derive(Debug, Deserialize)]
 struct Project {
     id: u64,
     ssh_url_to_repo: String,
@@ -73,37 +68,20 @@ struct Project {
     path_with_namespace: String,
 }
 
-async fn fetch_groups(client: &reqwest::Client, gitlab_url: &str) -> Result<Vec<Group>> {
-    let req = client
-        .get(format!("https://{}/api/v4/groups?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&per_page=100", gitlab_url)); // TODO: pagination
-
-    let json = req.send().await?.text().await?;
-
-    let groups: Vec<Group> = serde_json::from_str(&json)
-        .with_context(|| format!("Failed to parse groups from JSON: json={}", json))?;
-
-    Ok(groups)
-}
-
-async fn fetch_group_projects_paginated(
+async fn fetch_projects_paginated(
     client: reqwest::Client,
-    group_id: u64,
     project_id_after: Option<u64>,
     gitlab_url: &str,
 ) -> Result<Vec<Project>> {
     let  req = client
-        .get(format!("https://{}/api/v4/groups/{}/projects?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100&id_after={}",gitlab_url, group_id, project_id_after.unwrap_or(0)));
+        .get(format!("https://{}/api/v4/projects?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100&id_after={}",gitlab_url,  project_id_after.unwrap_or(0)));
 
     let json = req.send().await?.text().await?;
 
     let projects: Vec<Project> = serde_json::from_str(&json)
         .with_context(|| format!("Failed to parse projects from JSON: json={}", json))?;
 
-    log::debug!(
-        "Fetch projects: count={} group={}",
-        projects.len(),
-        group_id
-    );
+    log::debug!("Fetched projects: count={}", projects.len(),);
     Ok(projects)
 }
 
@@ -232,23 +210,21 @@ async fn clone_projects(
     Ok(())
 }
 
-async fn fetch_all_projects_for_group(
+async fn fetch_projects(
     client: reqwest::Client,
     tx_projects: Sender<Project>,
     tx_projects_actions: Sender<ProjectAction>,
-    group: Group,
     gitlab_url: &str,
 ) -> Result<()> {
     let mut project_id_after = None;
     loop {
-        let projects =
-            fetch_group_projects_paginated(client.clone(), group.id, project_id_after, gitlab_url)
-                .await
-                .with_context(|| format!("Failed to fetch projects: group_id={}", group.id))?;
+        let projects = fetch_projects_paginated(client.clone(), project_id_after, gitlab_url)
+            .await
+            .with_context(|| "Failed to fetch projects")?;
 
         let new_project_id_after = projects.iter().map(|p| p.id).last();
         for project in projects {
-            log::debug!("group_id={} project={:?}", group.id, project);
+            log::debug!("project={:?}", &project);
             tx_projects_actions
                 .send(ProjectAction::ToClone)
                 .await
@@ -288,30 +264,7 @@ async fn main() -> Result<()> {
     });
 
     let client = make_http_client(&opts.api_token)?;
-    let groups = fetch_groups(&client, &opts.url).await?;
-    log::debug!("Groups: {:?}", groups);
-    let url = Arc::new(opts.url.clone());
-
-    for group in groups {
-        let client = client.clone();
-        let tx_projects_2 = tx_projects.clone();
-        let url = url.clone();
-
-        let tx_projects_actions_2 = tx_projects_actions.clone();
-        tokio::spawn(async move {
-            let _ = fetch_all_projects_for_group(
-                client,
-                tx_projects_2,
-                tx_projects_actions_2,
-                group,
-                &url,
-            )
-            .await
-            .map_err(|err| {
-                log::error!("Failed to fetch projects for group: {}", err);
-            });
-        });
-    }
+    fetch_projects(client, tx_projects, tx_projects_actions, &opts.url).await?;
 
     let mut todo_count: Option<usize> = None;
     let mut total_count = 0usize;
@@ -319,10 +272,10 @@ async fn main() -> Result<()> {
     let mut total_bytes = 0usize;
 
     loop {
-        let group_message = rx_projects_actions.recv().await;
-        log::debug!("todo_count={:?} message={:?}", todo_count, group_message);
+        let message = rx_projects_actions.recv().await;
+        log::debug!("todo_count={:?} message={:?}", todo_count, message);
 
-        match group_message {
+        match message {
             None => {
                 unreachable!();
             }
