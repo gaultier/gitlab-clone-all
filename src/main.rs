@@ -11,7 +11,7 @@ use serde::Deserialize;
 use std::cell::RefCell;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::{path::PathBuf, time::Duration};
+use std::{path::Component, path::Path, path::PathBuf, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug)]
@@ -105,7 +105,8 @@ async fn clone_projects(
     opts: Arc<Opts>,
     tx_projects_actions: Sender<ProjectAction>,
 ) -> Result<()> {
-    match std::fs::create_dir_all(&opts.directory) {
+    let expanded_path = expand_path(&opts.directory);
+    match std::fs::create_dir_all(expanded_path.as_path()) {
         Ok(_) => {}
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(err) => {
@@ -239,6 +240,23 @@ async fn fetch_projects(
         project_id_after = new_project_id_after;
     }
     Ok(())
+}
+
+fn expand_path(path: &Path) -> PathBuf {
+    let raw_path = PathBuf::from(path);
+    let home = dirs::home_dir().unwrap().as_os_str().to_owned();
+    let expanded_path: PathBuf = raw_path
+        .components()
+        .map(|c| {
+            if c.as_os_str() == "~" {
+                Component::Normal(&home)
+            } else {
+                c
+            }
+        })
+        .collect();
+
+    expanded_path
 }
 
 #[tokio::main]
