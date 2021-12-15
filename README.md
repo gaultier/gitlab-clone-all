@@ -63,3 +63,4 @@ $ cargo r -- --api-token="$GITLAB_API_TOKEN" --directory=/tmp/$(date +%s) --clon
 
 
 - [ ] Retrying
+- [ ] `--me` option to only clone my repositories
