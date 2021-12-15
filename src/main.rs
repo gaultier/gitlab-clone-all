@@ -309,7 +309,7 @@ async fn main() -> Result<()> {
 
         match message {
             None => {
-                unreachable!();
+                return Ok(());
             }
             Some(ProjectAction::ToClone) => {
                 todo_count = todo_count.map(|n| n + 1).or(Some(1));
