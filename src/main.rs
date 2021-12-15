@@ -16,7 +16,9 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug)]
 enum ProjectAction {
-    ToClone,
+    ToClone {
+        project_path: String,
+    },
     Cloned {
         project_path: String,
         received_bytes: usize,
@@ -221,12 +223,15 @@ async fn fetch_projects(
         let projects = fetch_projects_paginated(client.clone(), project_id_after, gitlab_url)
             .await
             .with_context(|| "Failed to fetch projects")?;
+        log::debug!("Projects: {:?}", &projects);
 
         let new_project_id_after = projects.iter().map(|p| p.id).last();
         for project in projects {
             log::debug!("project={:?}", &project);
             tx_projects_actions
-                .send(ProjectAction::ToClone)
+                .send(ProjectAction::ToClone {
+                    project_path: project.path_with_namespace.clone(),
+                })
                 .await
                 .with_context(|| "Failed to send ProjectToClone")
                 .unwrap();
@@ -264,7 +269,12 @@ async fn main() -> Result<()> {
     });
 
     let client = make_http_client(&opts.api_token)?;
-    fetch_projects(client, tx_projects, tx_projects_actions, &opts.url).await?;
+    tokio::spawn(async move {
+        if let Err(err) = fetch_projects(client, tx_projects, tx_projects_actions, &opts.url).await
+        {
+            log::error!("Failed to fetch projects: {}", err);
+        }
+    });
 
     let mut todo_count: Option<usize> = None;
     let mut total_count = 0usize;
@@ -279,9 +289,13 @@ async fn main() -> Result<()> {
             None => {
                 unreachable!();
             }
-            Some(ProjectAction::ToClone) => {
+            Some(ProjectAction::ToClone { project_path }) => {
                 todo_count = todo_count.map(|n| n + 1).or(Some(1));
                 total_count += 1;
+                println!(
+                    "{}",
+                    style(format!("Cloning {}", project_path)).color256(245)
+                );
             }
             Some(ProjectAction::Failed { project_path, err }) => {
                 todo_count = todo_count.map(|n| n - 1);
