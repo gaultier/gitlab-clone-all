@@ -73,7 +73,7 @@ async fn fetch_projects_paginated(
     gitlab_url: &str,
 ) -> Result<Vec<Project>> {
     let  req = client
-        .get(format!("https://{}/api/v4/projects?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100&id_after={}",gitlab_url,  project_id_after.unwrap_or(0)));
+        .get(format!("https://{}/api/v4/projects?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100&id_after={}", gitlab_url, project_id_after.unwrap_or(0)));
 
     let json = req.send().await?.text().await?;
 
