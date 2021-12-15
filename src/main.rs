@@ -28,7 +28,7 @@ enum ProjectAction {
     },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 enum CloneMethod {
     Ssh,
     Https,
@@ -102,15 +102,11 @@ fn make_http_client(api_token: &str) -> Result<Client> {
 
 async fn clone_projects(
     mut rx_projects: Receiver<Project>,
-    opts: Arc<Opts>,
     tx_projects_actions: Sender<ProjectAction>,
+    expanded_path: &Path,
+    clone_method: CloneMethod,
 ) -> Result<()> {
-    let expanded_path = expand_path(&opts.directory)
-        .canonicalize()
-        .with_context(|| "Failed to canonicalize path given on the CLI")?;
-    log::debug!("Expanded path: {:?}", &expanded_path);
-
-    match std::fs::create_dir_all(expanded_path.as_path()) {
+    match std::fs::create_dir_all(expanded_path) {
         Ok(_) => {}
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(err) => {
@@ -126,7 +122,6 @@ async fn clone_projects(
         let path = expanded_path.join(&project.path_with_namespace);
         log::debug!("Cloning project {:?} fs_path={:?}", &project, &path);
 
-        let opts = opts.clone();
         let tx_projects_actions = tx_projects_actions.clone();
         tokio::spawn(async move {
             let received_bytes = RefCell::new(0usize);
@@ -147,7 +142,7 @@ async fn clone_projects(
             // Prepare fetch options.
             let mut fo = git2::FetchOptions::new();
 
-            if opts.clone_method == CloneMethod::Ssh {
+            if clone_method == CloneMethod::Ssh {
                 callbacks.credentials(|_url, username_from_url, _allowed_types| {
                     Cred::ssh_key(
                         username_from_url.unwrap(),
@@ -163,7 +158,7 @@ async fn clone_projects(
             fo.remote_callbacks(callbacks);
             builder.fetch_options(fo);
 
-            let url_to_repo = match opts.clone_method {
+            let url_to_repo = match clone_method {
                 CloneMethod::Ssh => &project.ssh_url_to_repo,
                 CloneMethod::Https => &project.http_url_to_repo,
             };
@@ -273,10 +268,22 @@ async fn main() -> Result<()> {
     let (tx_projects_actions, mut rx_projects_actions) =
         tokio::sync::mpsc::channel::<ProjectAction>(500);
 
-    let opts_1 = opts.clone();
     let tx_projects_actions_1 = tx_projects_actions.clone();
+    let expanded_path = expand_path(&opts.directory)
+        .canonicalize()
+        .with_context(|| "Failed to canonicalize path given on the CLI")?;
+    log::debug!("Expanded path: {:?}", &expanded_path);
+
+    let clone_method = opts.clone_method;
     tokio::spawn(async move {
-        if let Err(err) = clone_projects(rx_projects, opts_1, tx_projects_actions_1).await {
+        if let Err(err) = clone_projects(
+            rx_projects,
+            tx_projects_actions_1,
+            &expanded_path,
+            clone_method,
+        )
+        .await
+        {
             log::error!("Failed to clone projects: err={}", err);
         }
     });
