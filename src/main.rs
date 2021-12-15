@@ -10,7 +10,6 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::cell::RefCell;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::{path::Component, path::Path, path::PathBuf, time::Duration};
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -262,7 +261,7 @@ fn expand_path(path: &Path) -> PathBuf {
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
-    let opts: Arc<Opts> = Arc::new(Opts::parse());
+    let opts = Opts::parse();
     let start = std::time::Instant::now();
 
     let (tx_projects, rx_projects) = tokio::sync::mpsc::channel::<Project>(500);
