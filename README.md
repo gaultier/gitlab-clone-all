@@ -53,6 +53,9 @@ $ ./target/release/gitlab-clone-all --api-token <API_TOKEN> --clone-method=ssh -
 ## Development
 
 ```sh
+# Adapt for your platform
+$ brew install openssl libgit2
+
 # Optional
 $ export RUST_LOG=debug
 
