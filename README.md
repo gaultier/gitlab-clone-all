@@ -2,7 +2,6 @@
 
 Clone locally all git projects from Gitlab. This is handy for example to search locally with `ripgrep` very quickly, or hack on projects.
 
-
 ## Usage
 
 *The api token is optional. Without it, only publicly accessible repositories can be cloned.*
@@ -49,7 +48,6 @@ Duration: 270.068645291s
 $ ./target/release/gitlab-clone-all --api-token <API_TOKEN> --clone-method=ssh --directory=/tmp/ --url=custom.gitlab.com
 ```
 
-
 ## Development
 
 ```sh
@@ -64,7 +62,6 @@ $ cargo r -- --api-token="$GITLAB_API_TOKEN" --directory=/tmp/$(date +%s) --clon
 
 
 ## Roadmap
-
 
 - [ ] Retrying
 - [ ] `--me` option to only clone my repositories
