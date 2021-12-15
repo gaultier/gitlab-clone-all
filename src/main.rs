@@ -105,21 +105,25 @@ async fn clone_projects(
     opts: Arc<Opts>,
     tx_projects_actions: Sender<ProjectAction>,
 ) -> Result<()> {
-    let expanded_path = expand_path(&opts.directory);
+    let expanded_path = expand_path(&opts.directory)
+        .canonicalize()
+        .with_context(|| "Failed to canonicalize path given on the CLI")?;
+    log::debug!("Expanded path: {:?}", &expanded_path);
+
     match std::fs::create_dir_all(expanded_path.as_path()) {
         Ok(_) => {}
         Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
         Err(err) => {
             bail!(
                 "Failed to create the destination directory: directory={} err={}",
-                opts.directory.as_path().to_string_lossy(),
+                expanded_path.to_string_lossy(),
                 err
             );
         }
     }
 
     while let Some(project) = rx_projects.recv().await {
-        let path = opts.directory.join(&project.path_with_namespace);
+        let path = expanded_path.join(&project.path_with_namespace);
         log::debug!("Cloning project {:?} fs_path={:?}", &project, &path);
 
         let opts = opts.clone();
