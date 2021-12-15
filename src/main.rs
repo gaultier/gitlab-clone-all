@@ -16,9 +16,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 
 #[derive(Debug)]
 enum ProjectAction {
-    ToClone {
-        project_path: String,
-    },
+    ToClone,
     Cloned {
         project_path: String,
         received_bytes: usize,
@@ -229,9 +227,7 @@ async fn fetch_projects(
         for project in projects {
             log::debug!("project={:?}", &project);
             tx_projects_actions
-                .send(ProjectAction::ToClone {
-                    project_path: project.path_with_namespace.clone(),
-                })
+                .send(ProjectAction::ToClone)
                 .await
                 .with_context(|| "Failed to send ProjectToClone")
                 .unwrap();
@@ -289,13 +285,9 @@ async fn main() -> Result<()> {
             None => {
                 unreachable!();
             }
-            Some(ProjectAction::ToClone { project_path }) => {
+            Some(ProjectAction::ToClone) => {
                 todo_count = todo_count.map(|n| n + 1).or(Some(1));
                 total_count += 1;
-                println!(
-                    "{}",
-                    style(format!("Cloning {}", project_path)).color256(245)
-                );
             }
             Some(ProjectAction::Failed { project_path, err }) => {
                 todo_count = todo_count.map(|n| n - 1);
