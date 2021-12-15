@@ -105,18 +105,6 @@ async fn clone_projects(
     expanded_path: &Path,
     clone_method: CloneMethod,
 ) -> Result<()> {
-    match std::fs::create_dir_all(expanded_path) {
-        Ok(_) => {}
-        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
-        Err(err) => {
-            bail!(
-                "Failed to create the destination directory: directory={} err={}",
-                expanded_path.to_string_lossy(),
-                err
-            );
-        }
-    }
-
     while let Some(project) = rx_projects.recv().await {
         let path = expanded_path.join(&project.path_with_namespace);
         log::debug!("Cloning project {:?} fs_path={:?}", &project, &path);
@@ -258,6 +246,21 @@ fn expand_path(path: &Path) -> PathBuf {
     expanded_path
 }
 
+fn create_if_not_exists(path: &Path) -> Result<()> {
+    match std::fs::create_dir_all(path) {
+        Ok(_) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(err) => {
+            bail!(
+                "Failed to create the destination directory: directory={} err={}",
+                path.to_string_lossy(),
+                err
+            );
+        }
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
@@ -269,10 +272,9 @@ async fn main() -> Result<()> {
         tokio::sync::mpsc::channel::<ProjectAction>(500);
 
     let tx_projects_actions_1 = tx_projects_actions.clone();
-    let expanded_path = expand_path(&opts.directory)
-        .canonicalize()
-        .with_context(|| "Failed to canonicalize path given on the CLI")?;
-    log::debug!("Expanded path: {:?}", &expanded_path);
+    let expanded_path = expand_path(&opts.directory);
+    create_if_not_exists(&expanded_path)
+        .with_context(|| "Failed to create directory given on the CLI")?;
 
     let clone_method = opts.clone_method;
     tokio::spawn(async move {
