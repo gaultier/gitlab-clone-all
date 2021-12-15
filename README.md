@@ -27,8 +27,6 @@ OPTIONS:
 # Simple usage (the exact output will be different for you)
 $ ./target/release/gitlab-clone-all --directory=/tmp
 ...
-✓ grup/grup (0 B, 0 objects)
-✓ soeren/sspssptest (0 B, 0 objects)
 ✓ youlysses/pmm-theme (2.5 KB, 6 objects)
 ✓ dkrikun/someproj (531 B, 5 objects)
 ✓ naggie/averclock (37.8 KB, 268 objects)
