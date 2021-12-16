@@ -1,4 +1,4 @@
-# gitlab_clone_all
+# gitlab-clone-all
 
 Clone locally all git projects from Gitlab. This is handy for example to search locally with `ripgrep` very quickly, or hack on projects.
 
