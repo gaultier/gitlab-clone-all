@@ -29,7 +29,7 @@ Build:
 ```sh
 # Requires libgit2 & openssl e.g. `brew install openssl libgit2`
 $ cargo build --release
-
+```
 
 Simple usage (the exact output will be different for you):
 
