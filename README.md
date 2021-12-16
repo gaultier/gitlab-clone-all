@@ -8,12 +8,9 @@ Every project is cloned concurrently for maximum performance and the memory usag
 
 *The api token is optional. Without it, only publicly accessible repositories can be cloned.*
 
-```sh
-# Requires libgit2 & openssl e.g. `brew install openssl libgit2`
-$ cargo build --release
+Usage:
 
-$ ./target/release/gitlab-clone-all --help
-
+```
 Clone all git repositories from gitlab
 
 USAGE:
@@ -25,8 +22,18 @@ OPTIONS:
     -d, --directory <DIRECTORY>          Root directory where to clone all the projects [default: .]
     -h, --help                           Print help information
     -u, --url <URL>                      [default: gitlab.com]
+```
 
-# Simple usage (the exact output will be different for you)
+Build:
+
+```sh
+# Requires libgit2 & openssl e.g. `brew install openssl libgit2`
+$ cargo build --release
+
+
+Simple usage (the exact output will be different for you):
+
+```sh
 $ ./target/release/gitlab-clone-all --directory=/tmp
 ...
 ✓ youlysses/pmm-theme (2.5 KB, 6 objects)
@@ -43,8 +50,11 @@ $ ./target/release/gitlab-clone-all --directory=/tmp
 
 Successfully cloned: 299/300 (1.7 GB)
 Duration: 270.068645291s
+```
 
-# Custom options
+Complex usage:
+
+```sh
 $ ./target/release/gitlab-clone-all --api-token <API_TOKEN> --clone-method=ssh --directory=/tmp/ --url=custom.gitlab.com
 ```
 
