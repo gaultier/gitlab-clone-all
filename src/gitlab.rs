@@ -13,6 +13,7 @@ async fn fetch_projects_paginated(
 ) -> Result<Vec<Project>> {
     let  req = client
         .get(format!("{}/api/v4/projects?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100&id_after={}", gitlab_url, project_id_after.unwrap_or(0)));
+    log::debug!("project_id_after={:?}", project_id_after);
 
     let json = req.send().await?.text().await?;
 
@@ -77,10 +78,13 @@ pub async fn fetch_projects(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use warp::Filter;
 
     #[tokio::test]
-    async fn foo() {
+    async fn one_page() {
+        env_logger::init();
+
         let res = [Project {
             id: 3,
             ssh_url_to_repo: String::from("ssh://A"),
@@ -118,5 +122,72 @@ mod tests {
         let action = rx_projects_actions.recv().await.unwrap();
         assert_eq!(action, ProjectAction::ToClone);
         assert_eq!(rx_projects_actions.recv().await, None);
+    }
+
+    #[tokio::test]
+    async fn two_pages() {
+        let first_page = [Project {
+            id: 1,
+            ssh_url_to_repo: String::from("ssh://A"),
+            http_url_to_repo: String::from("http://B"),
+            path_with_namespace: String::from("C/D"),
+        }];
+        let second_page = [Project {
+            id: 2,
+            ssh_url_to_repo: String::from("ssh://A"),
+            http_url_to_repo: String::from("http://B"),
+            path_with_namespace: String::from("C/D"),
+        }];
+
+        let first_page1 = first_page.clone();
+        let second_page1 = second_page.clone();
+        let projects_route = warp::get()
+            .and(warp::path!("api" / "v4" / "projects"))
+            .and(warp::query::<HashMap<String, String>>())
+            .map(
+                move |p: HashMap<String, String>| match p.get("id_after").map(|s| s.as_str()) {
+                    Some("1") | Some("2") => Ok(warp::reply::json(&second_page1)),
+                    Some("0") | None => Ok(warp::reply::json(&first_page1)),
+                    Some(id) => panic!("Unkown id_after={}", id),
+                },
+            );
+
+        tokio::spawn(async move {
+            warp::serve(projects_route)
+                .run(([127, 0, 0, 1], 8124))
+                .await;
+        });
+
+        let client = reqwest::Client::new();
+        let (tx_projects, mut rx_projects) = tokio::sync::mpsc::channel::<Project>(2);
+        let (tx_projects_actions, mut rx_projects_actions) =
+            tokio::sync::mpsc::channel::<ProjectAction>(2);
+        fetch_projects(
+            client,
+            tx_projects,
+            tx_projects_actions,
+            "http://localhost:8124",
+        )
+        .await
+        .unwrap();
+
+        {
+            // First page
+            let project = rx_projects.recv().await.unwrap();
+            assert_eq!(project, first_page[0]);
+
+            let action = rx_projects_actions.recv().await.unwrap();
+            assert_eq!(action, ProjectAction::ToClone);
+        }
+        {
+            // Second page
+            let project = rx_projects.recv().await.unwrap();
+            assert_eq!(project, second_page[0]);
+            assert_eq!(rx_projects.recv().await, None);
+
+            let action = rx_projects_actions.recv().await.unwrap();
+            assert_eq!(action, ProjectAction::ToClone);
+            assert_eq!(rx_projects_actions.recv().await, None);
+        }
     }
 }
