@@ -64,12 +64,18 @@ $ ./target/release/gitlab-clone-all --api-token <API_TOKEN> --clone-method=ssh -
 # Adapt for your platform
 $ brew install openssl libgit2
 
-# Optional
+# Optional verbose logs
 $ export RUST_LOG=debug
 
-$ cargo r -- --api-token="$GITLAB_API_TOKEN" --directory=/tmp/$(date +%s) --clone-method=ssh
+$ cargo run -- --api-token="$GITLAB_API_TOKEN" --directory=/tmp/$(date +%s) --clone-method=ssh
 ```
 
+## Docker
+
+```sh
+$ docker build -t gitlab-clone-all:latest .
+$ docker run -it gitlab-clone-all:latest
+```
 
 ## Roadmap
 
