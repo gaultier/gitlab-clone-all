@@ -53,13 +53,13 @@ struct Opts {
     directory: PathBuf,
     #[clap(short, long, default_value = "")]
     api_token: String,
-    #[clap(short, long, default_value = "gitlab.com")]
+    #[clap(short, long, default_value = "https://gitlab.com")]
     url: String,
     #[clap(short, long, possible_values = &["https","ssh"], default_value="https")]
     clone_method: CloneMethod,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq)]
 struct Project {
     id: u64,
     ssh_url_to_repo: String,
@@ -73,7 +73,7 @@ async fn fetch_projects_paginated(
     gitlab_url: &str,
 ) -> Result<Vec<Project>> {
     let  req = client
-        .get(format!("https://{}/api/v4/projects?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100&id_after={}", gitlab_url, project_id_after.unwrap_or(0)));
+        .get(format!("{}/api/v4/projects?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100&id_after={}", gitlab_url, project_id_after.unwrap_or(0)));
 
     let json = req.send().await?.text().await?;
 
@@ -264,7 +264,14 @@ fn create_dir_if_not_exists(path: &Path) -> Result<()> {
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
-    let opts = Opts::parse();
+    let opts = {
+        let mut opts = Opts::parse();
+        if !opts.url.starts_with("http") {
+            opts.url = format!("https://{}", opts.url);
+        }
+        opts
+    };
+
     let start = std::time::Instant::now();
 
     let (tx_projects, rx_projects) = tokio::sync::mpsc::channel::<Project>(500);
@@ -347,5 +354,47 @@ async fn main() -> Result<()> {
             );
             return Ok(());
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use warp::Filter;
+
+    #[tokio::test]
+    async fn foo() {
+        let hello = warp::path!("api" / "v4" / "projects").map(|| {
+            r#"
+                [
+                 {
+                    "id": 3,
+                    "ssh_url_to_repo": "ssh://A",
+                    "http_url_to_repo": "http://B",
+                    "path_with_namespace": "C/D"
+                 }   
+                ]
+                "#
+        });
+
+        tokio::spawn(async move {
+            warp::serve(hello).run(([127, 0, 0, 1], 8123)).await;
+        });
+
+        let client = reqwest::Client::new();
+        let projects = fetch_projects_paginated(client, None, "http://localhost:8123")
+            .await
+            .unwrap();
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(
+            projects[0],
+            Project {
+                id: 3,
+                ssh_url_to_repo: String::from("ssh://A"),
+                http_url_to_repo: String::from("http://B"),
+                path_with_namespace: String::from("C/D"),
+            }
+        );
     }
 }
