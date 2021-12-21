@@ -3,7 +3,6 @@ use anyhow::{Context, Result};
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
 use reqwest::Client;
-use serde::Deserialize;
 use std::time::Duration;
 use tokio::sync::mpsc::Sender;
 
@@ -82,21 +81,20 @@ mod tests {
 
     #[tokio::test]
     async fn foo() {
-        let hello = warp::path!("api" / "v4" / "projects").map(|| {
-            r#"
-                [
-                 {
-                    "id": 3,
-                    "ssh_url_to_repo": "ssh://A",
-                    "http_url_to_repo": "http://B",
-                    "path_with_namespace": "C/D"
-                 }   
-                ]
-                "#
-        });
+        let res = [Project {
+            id: 3,
+            ssh_url_to_repo: String::from("ssh://A"),
+            http_url_to_repo: String::from("http://B"),
+            path_with_namespace: String::from("C/D"),
+        }];
+
+        let projects_route =
+            warp::path!("api" / "v4" / "projects").map(|| Ok(warp::reply::json(&res)));
 
         tokio::spawn(async move {
-            warp::serve(hello).run(([127, 0, 0, 1], 8123)).await;
+            warp::serve(projects_route)
+                .run(([127, 0, 0, 1], 8123))
+                .await;
         });
 
         let client = reqwest::Client::new();
@@ -104,15 +102,7 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(projects.len(), 1);
-        assert_eq!(
-            projects[0],
-            Project {
-                id: 3,
-                ssh_url_to_repo: String::from("ssh://A"),
-                http_url_to_repo: String::from("http://B"),
-                path_with_namespace: String::from("C/D"),
-            }
-        );
+        assert_eq!(projects.len(), res.len());
+        assert_eq!(projects[0], res[0]);
     }
 }
