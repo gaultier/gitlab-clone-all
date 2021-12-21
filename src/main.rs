@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
         )
         .await
         {
-            log::error!("Failed to clone projects: err={}", err);
+            log::error!("Failed to clone projects: err={:?}", err);
         }
     });
 
