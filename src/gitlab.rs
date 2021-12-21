@@ -81,9 +81,41 @@ mod tests {
     use warp::Filter;
 
     #[tokio::test]
-    async fn one_page() {
+    async fn zero_results() {
         env_logger::init();
 
+        let res: [Project; 0] = [];
+
+        let res1 = res.clone();
+        let projects_route =
+            warp::path!("api" / "v4" / "projects").map(move || Ok(warp::reply::json(&res1)));
+
+        tokio::spawn(async move {
+            warp::serve(projects_route)
+                .run(([127, 0, 0, 1], 8122))
+                .await;
+        });
+
+        let client = reqwest::Client::new();
+        let (tx_projects, mut rx_projects) = tokio::sync::mpsc::channel::<Project>(1);
+        let (tx_projects_actions, mut rx_projects_actions) =
+            tokio::sync::mpsc::channel::<ProjectAction>(1);
+        fetch_projects(
+            client,
+            tx_projects,
+            tx_projects_actions,
+            "http://localhost:8122",
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(rx_projects.recv().await, None);
+
+        assert_eq!(rx_projects_actions.recv().await, None);
+    }
+
+    #[tokio::test]
+    async fn one_page() {
         let res = [Project {
             id: 3,
             ssh_url_to_repo: String::from("ssh://A"),
