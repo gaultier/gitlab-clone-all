@@ -221,4 +221,19 @@ mod tests {
             assert_eq!(rx_projects_actions.recv().await, None);
         }
     }
+
+    #[tokio::test]
+    async fn http_error() {
+        let client = reqwest::Client::new();
+        let (tx_projects, _) = tokio::sync::mpsc::channel::<Project>(1);
+        let (tx_projects_actions, _) = tokio::sync::mpsc::channel::<ProjectAction>(1);
+        let res = fetch_projects(
+            client,
+            tx_projects,
+            tx_projects_actions,
+            "http://localhost:8125",
+        )
+        .await;
+        assert!(res.is_err());
+    }
 }

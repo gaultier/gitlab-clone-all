@@ -76,3 +76,4 @@ $ cargo r -- --api-token="$GITLAB_API_TOKEN" --directory=/tmp/$(date +%s) --clon
 - [ ] Retrying
 - [ ] `--me` option to only clone my repositories
 - [ ] Stop if no project could be fetched from the Gitlab API at all
+- [ ] Max network rate CLI option

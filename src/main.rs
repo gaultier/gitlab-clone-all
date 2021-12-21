@@ -94,7 +94,7 @@ async fn main() -> Result<()> {
     tokio::spawn(async move {
         if let Err(err) = fetch_projects(client, tx_projects, tx_projects_actions, &opts.url).await
         {
-            log::error!("Failed to fetch projects: {}", err);
+            log::error!("Failed to fetch projects: {:?}", err);
         }
     });
 
