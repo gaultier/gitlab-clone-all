@@ -13,7 +13,6 @@ async fn fetch_projects_paginated(
 ) -> Result<Vec<Project>> {
     let  req = client
         .get(format!("{}/api/v4/projects?statistics=false&top_level=&with_custom_attributes=false&all_available=true&top_level&order_by=id&sort=asc&pagination=keyset&per_page=100&id_after={}", gitlab_url, project_id_after.unwrap_or(0)));
-    log::debug!("project_id_after={:?}", project_id_after);
 
     let json = req.send().await?.text().await?;
 
