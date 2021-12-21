@@ -88,8 +88,9 @@ mod tests {
             path_with_namespace: String::from("C/D"),
         }];
 
+        let res1 = res.clone();
         let projects_route =
-            warp::path!("api" / "v4" / "projects").map(|| Ok(warp::reply::json(&res)));
+            warp::path!("api" / "v4" / "projects").map(move || Ok(warp::reply::json(&res1)));
 
         tokio::spawn(async move {
             warp::serve(projects_route)
@@ -103,6 +104,6 @@ mod tests {
             .unwrap();
 
         assert_eq!(projects.len(), res.len());
-        assert_eq!(projects[0], res[0]);
+        assert_eq!(projects, res);
     }
 }
