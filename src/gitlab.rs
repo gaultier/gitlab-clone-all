@@ -52,6 +52,9 @@ pub async fn fetch_projects(
         log::debug!("Projects: {:?}", &projects);
 
         let new_project_id_after = projects.iter().map(|p| p.id).last();
+        if new_project_id_after == project_id_after || new_project_id_after.is_none() {
+            break;
+        }
         for project in projects {
             log::debug!("project={:?}", &project);
             tx_projects_actions
@@ -66,9 +69,6 @@ pub async fn fetch_projects(
                 .unwrap();
         }
 
-        if new_project_id_after == project_id_after || new_project_id_after.is_none() {
-            break;
-        }
         project_id_after = new_project_id_after;
     }
     Ok(())
@@ -99,11 +99,20 @@ mod tests {
         });
 
         let client = reqwest::Client::new();
-        let projects = fetch_projects_paginated(client, None, "http://localhost:8123")
-            .await
-            .unwrap();
+        let (tx_projects, mut rx_projects) = tokio::sync::mpsc::channel::<Project>(1);
+        let (tx_projects_actions, mut rx_projects_actions) =
+            tokio::sync::mpsc::channel::<ProjectAction>(1);
+        fetch_projects(
+            client,
+            tx_projects,
+            tx_projects_actions,
+            "http://localhost:8123",
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(projects.len(), res.len());
-        assert_eq!(projects, res);
+        let project = rx_projects.recv().await.unwrap();
+        assert_eq!(project, res[0]);
+        assert_eq!(rx_projects.recv().await, None);
     }
 }
