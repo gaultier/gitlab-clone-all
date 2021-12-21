@@ -1,4 +1,4 @@
-use crate::project::ProjectAction;
+use crate::project::{Project, ProjectAction};
 use anyhow::{Context, Result};
 use reqwest::header::HeaderMap;
 use reqwest::header::HeaderValue;
@@ -6,14 +6,6 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
 use tokio::sync::mpsc::Sender;
-
-#[derive(Debug, Deserialize, PartialEq, Eq)]
-pub struct Project {
-    pub id: u64,
-    pub ssh_url_to_repo: String,
-    pub http_url_to_repo: String,
-    pub path_with_namespace: String,
-}
 
 async fn fetch_projects_paginated(
     client: reqwest::Client,
