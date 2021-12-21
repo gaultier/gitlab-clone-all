@@ -114,5 +114,9 @@ mod tests {
         let project = rx_projects.recv().await.unwrap();
         assert_eq!(project, res[0]);
         assert_eq!(rx_projects.recv().await, None);
+
+        let action = rx_projects_actions.recv().await.unwrap();
+        assert_eq!(action, ProjectAction::ToClone);
+        assert_eq!(rx_projects_actions.recv().await, None);
     }
 }

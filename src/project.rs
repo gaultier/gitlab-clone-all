@@ -9,7 +9,7 @@ pub struct Project {
     pub path_with_namespace: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ProjectAction {
     ToClone,
     Cloned {
