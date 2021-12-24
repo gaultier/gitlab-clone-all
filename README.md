@@ -27,7 +27,6 @@ OPTIONS:
 Build:
 
 ```sh
-# Requires libgit2 & openssl e.g. `brew install openssl libgit2`
 $ cargo build --release
 ```
 
@@ -61,13 +60,18 @@ $ ./target/release/gitlab-clone-all --api-token <API_TOKEN> --clone-method=ssh -
 ## Development
 
 ```sh
-# Adapt for your platform
-$ brew install openssl libgit2
-
 # Optional verbose logs
 $ export RUST_LOG=debug
 
 $ cargo run -- --api-token="$GITLAB_API_TOKEN" --directory=/tmp/$(date +%s) --clone-method=ssh
+```
+
+## Cross compile
+
+```sh
+$ rustup target add x86_64-unknown-linux-musl
+$ brew install filosottile/musl-cross/musl-cross
+$ cargo build --release --target x86_64-unknown-linux-musl
 ```
 
 ## Docker

@@ -6,8 +6,8 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-git2 = "0.13"
-reqwest = { version = "0.11.3", features = ["json"] }
+git2 = {version = "0.13.25", features= ["vendored-libgit2"]}
+reqwest = { version = "0.11.3", features = ["json", "rustls-tls"], default-features = false }
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 serde = { version = "1.0.117", features = ["derive"] }
 serde_json = { version = "1.0"}
