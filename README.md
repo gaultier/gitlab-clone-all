@@ -6,7 +6,7 @@ Every project is cloned concurrently for maximum performance and the memory usag
 
 ## Usage
 
-*The api token is optional. Without it, only publicly accessible repositories can be cloned. Go to https://gitlab.your-instance.com/-/profile/personal_access_tokens to create one with `read_api` and `read_repository` access*
+*The api token is optional. Without it, only publicly accessible repositories can be cloned. Go to https://gitlab.your-instance.com/-/profile/personal_access_tokens to create one with `read_api` and `read_repository` access.*
 
 Usage:
 
