@@ -62,7 +62,7 @@ $ ./target/release/gitlab-clone-all --api-token <API_TOKEN> --clone-method=ssh -
 
 ```sh
 # Adapt for your platform
-$ brew install openssl libgit2
+$ brew install rust openssl libgit2
 
 # Optional verbose logs
 $ export RUST_LOG=debug
@@ -71,6 +71,8 @@ $ cargo run -- --api-token="$GITLAB_API_TOKEN" --directory=/tmp/$(date +%s) --cl
 ```
 
 ## Docker
+
+*Due to limitations of git/Gitlab/the current capabilities of the project, running the app in Docker won't work if authentication is required without extra work (that's because you need to copy your ssh private key into the container).*
 
 ```sh
 $ docker build -t gitlab-clone-all:latest .
