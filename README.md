@@ -76,7 +76,7 @@ $ cargo run -- --api-token="$GITLAB_API_TOKEN" --directory=/tmp/$(date +%s) --cl
 
 ```sh
 $ docker build -t gitlab-clone-all:latest .
-$ docker run -it gitlab-clone-all:latest
+$ docker run -it gitlab-clone-all:latest gitlab-clone-all --directory=/tmp/
 ```
 
 ## Roadmap
