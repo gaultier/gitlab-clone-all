@@ -27,7 +27,7 @@ OPTIONS:
 Build:
 
 ```sh
-# Requires libgit2 & openssl e.g. `brew install openssl libgit2`
+# Requires rust, libgit2 & openssl e.g. `brew install openssl libgit2 rust`
 $ cargo build --release
 ```
 
